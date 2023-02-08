@@ -23,7 +23,7 @@
 		r = jc.decode(r.data);
 
 		signalGroup = r.signalGroup;
-		laneManeuvers = r.LaneManeuvers;
+		laneManeuvers = r.laneManeuvers;
 
 		// Start a subscription if currently isn't one or the intersection has changed
 		if (!sub || r.intersectionId !== intersectionId) {
