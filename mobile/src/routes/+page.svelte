@@ -1,6 +1,7 @@
 <script>
 	import { connect, JSONCodec } from 'nats.ws';
 	import JSONTree from 'svelte-json-tree';
+	
 
 	let nc;
 	let pos;
@@ -9,6 +10,7 @@
 	let sub;
 	let intersectionId;
 	let signalGroup;
+	let laneManeuvers;
 
 	/*
       This function is called every time the phone "updates" the position. The variable position is an   
@@ -35,19 +37,15 @@
 		r = jc.decode(r.data);
 
 		signalGroup = r.signalGroup;
+		laneManeuvers = r.laneManeuvers;
+
 
 		// Start a subscription if new or intersection has changed
-		if (!sub || r.intersectionId !== intersectionId) {
-			if (sub) {
-				sub.unsubscribe();
-			}
+		intersectionId = r.intersectionId;
+		sub = nc.subscribe(`light-status.${r.intersectionId}`);
 
-			intersectionId = r.intersectionId;
-			sub = nc.subscribe(`light-status.${r.intersectionId}`);
-
-			for await (const m of sub) {
-				lightStatus = jc.decode(m.data);
-			}
+		for await (const m of sub) {
+			lightStatus = jc.decode(m.data);
 		}
 	}
 
@@ -95,7 +93,7 @@
 	}
 </script>
 
-<h1>Data diode mobile app</h1>
+<h1>Data Diode App</h1>
 
 {#if errors.length > 0}
 	<h2 class="error">Errors</h2>
@@ -106,35 +104,62 @@
 	</ol>
 {/if}
 
-<h2>Current position</h2>
 {#if !pos}
 	<i>Waiting for phone position...</i>
 {:else}
-	<ul>
-		<li>Latitude: {pos.coords.latitude}</li>
-		<li>Longitude: {pos.coords.longitude}</li>
-		<li>Accuracy: {pos.coords.accuracy} m</li>
-		<li>Altitude: {pos.coords.altitude} m (accuracy: {pos.coords.altitudeAccuracy} m)</li>
-		<li>Heading: {pos.coords.heading} degrees from true north</li>
-		<li>Speed: {pos.coords.speed} m/s</li>
-	</ul>
 
-	<h2>Intersection: {intersectionId}</h2>
+<h2>Current Position : <small>Latitude: {pos.coords.latitude}; Longitude: {pos.coords.longitude}</small></h2>
 
-	<h3>Signal group: {signalGroup}</h3>
+{lightStatus}
+{#if lightStatus}
+<textarea>
 
-	{#if lightStatus}
-		<JSONTree value={lightStatus.phases[signalGroup - 1]} />
+Signal Group: {signalGroup}
+Lane Maneuvers allowed : {laneManeuvers}
+Light Status: {lightStatus.phases[signalGroup - 1].color}
+vehTimeMin : {lightStatus.phases[signalGroup - 1].vehTimeMin}
+vehTimeMax : {lightStatus.phases[signalGroup - 1].vehTimeMax}
+</textarea>
 
-		<h2>Raw data</h2>
-		<JSONTree value={lightStatus} />
-	{:else}
-		<i>Waiting for signal data</i>
-	{/if}
+{:else}
+<textarea>
+
+Signal Group: {signalGroup}
+Lane Maneuvers allowed : {laneManeuvers}
+
+Waiting for signal data
+</textarea>
+{/if}
+
 {/if}
 
 <style>
 	.error {
 		color: red;
 	}
+
+	h1 {
+			color: #2196f3;
+			font-family: 'Comic Sans MS';
+			font-size: 3.5em;
+			text-align: center;
+		}
+	h2
+	{
+			color: grey;
+			font-family: 'Calibri';
+			font-size: 2em;
+			text-align: center;
+	}
+	textarea {  width: 35%; 
+				height: 250px;
+				box-sizing: border-box;
+				border: 4px solid #d4d4d4;
+				display: block;
+				margin-left: auto;
+    			margin-right: auto;
+				font-size: 1.5em;
+ 				font-family: 'Calibri';
+				text-align: center;
+				}
 </style>
