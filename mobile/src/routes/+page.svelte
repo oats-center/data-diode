@@ -1,7 +1,9 @@
 <script>
+	import 'leaflet/dist/leaflet.css';
+	import Leaflet from './Leaflet.svelte';
 	import { connect, JSONCodec } from 'nats.ws';
 	import JSONTree from 'svelte-json-tree';
-	
+	import CircleMarker from './CircleMarker.svelte';
 
 	let nc;
 	let pos;
@@ -12,22 +14,6 @@
 	let signalGroup;
 	let laneManeuvers;
 
-	/*
-      This function is called every time the phone "updates" the position. The variable position is an   
-      object and has the following shape: 
-
-      position = {
-        coords: {
-          accuracy: <number-in-meters>,
-          altitude: <number-of-meters-above-sea-level>,
-          altitudeAccuracy: <number-in-meters>,
-          heading: <number-in-degrees-from-true-north>,
-          latitude: <number-in-degrees>,
-          longitude: <number-in-degrees>,
-          speed: <numnber-in-meters-per-second>
-        }
-      }
-    */
 	async function setCurrentPosition(position) {
 		pos = position;
 		let r = await nc.request(
@@ -37,16 +23,23 @@
 		r = jc.decode(r.data);
 
 		signalGroup = r.signalGroup;
-		laneManeuvers = r.laneManeuvers;
+		laneManeuvers = r.LaneManeuvers;
 
+		// Start a subscription if currently isn't one or the intersection has changed
+		if (!sub || r.intersectionId !== intersectionId) {
+			if (sub) {
+				sub.unsubscribe();
+			}
 
-		// Start a subscription if new or intersection has changed
-		intersectionId = r.intersectionId;
-		sub = nc.subscribe(`light-status.${r.intersectionId}`);
+			intersectionId = r.intersectionId;
+			sub = nc.subscribe(`light-status.${r.intersectionId}`);
+		}
 
 		for await (const m of sub) {
 			lightStatus = jc.decode(m.data);
 		}
+
+		console.log('Subscription closed.');
 	}
 
 	/* This function is called when something went wrong with getting position data. */
@@ -75,7 +68,7 @@
 
 	try {
 		connect({
-			servers: 'wss://128.46.199.238:4333',
+			servers: 'wss://ibts-compute.ecn.purdue.edu:4333',
 			user: 'diode',
 			pass: '9c7TCRO'
 		}).then(async (nats) => {
@@ -85,15 +78,15 @@
 				timeout: 15000,
 				maximumAge: 0
 			});
-
-			console.log('subscription closed');
 		});
 	} catch (e) {
 		console.log(e);
 	}
 </script>
 
-<h1>Data Diode App</h1>
+<div>
+	<h1 class="text-primary text-4xl">Data Diode App</h1>
+</div>
 
 {#if errors.length > 0}
 	<h2 class="error">Errors</h2>
@@ -104,33 +97,50 @@
 	</ol>
 {/if}
 
-{#if !pos}
-	<i>Waiting for phone position...</i>
-{:else}
+<div class="card bg-base-100 shadow-xl w-2/3">
+	<div class="card-body">
+		{#if !pos}
+			<div class="card-title italic">Waiting for phone position...</div>
+		{:else}
+			<div class="card-title">Current Position</div>
+			<Leaflet class="h-56 w-100">
+				<CircleMarker lat={pos.coords.latitude} lon={pos.coords.longitude} zoomTo={true} />
+			</Leaflet>
+			<p class="text-sm">Latitude: {pos.coords.latitude}; Longitude: {pos.coords.longitude}</p>
+		{/if}
+	</div>
+</div>
 
-<h2>Current Position : <small>Latitude: {pos.coords.latitude}; Longitude: {pos.coords.longitude}</small></h2>
+{#if pos}
+	<div class="card bg-base-100 shadow-xl w-2/3">
+		<div class="card-body">
+			<div class="card-title">Signal data</div>
+			<p>Group: {signalGroup}</p>
+			<p>Allowed Maneuvers: {laneManeuvers}</p>
+		</div>
+	</div>
 
-{lightStatus}
-{#if lightStatus}
-<textarea>
-
-Signal Group: {signalGroup}
-Lane Maneuvers allowed : {laneManeuvers}
-Light Status: {lightStatus.phases[signalGroup - 1].color}
-vehTimeMin : {lightStatus.phases[signalGroup - 1].vehTimeMin}
-vehTimeMax : {lightStatus.phases[signalGroup - 1].vehTimeMax}
-</textarea>
-
-{:else}
-<textarea>
-
-Signal Group: {signalGroup}
-Lane Maneuvers allowed : {laneManeuvers}
-
-Waiting for signal data
-</textarea>
+	<div class="card bg-base-100 shadow-xl w-2/3">
+		<div class="card-body">
+			{#if lightStatus}
+				<div class="card-title">Signal Group Data</div>
+				<p>Light Status: {lightStatus.phases[signalGroup - 1].color}</p>
+				<p>vehTimeMin : {lightStatus.phases[signalGroup - 1].vehTimeMin}</p>
+				<p>vehTimeMax : {lightStatus.phases[signalGroup - 1].vehTimeMax}</p>
+			{:else}
+				<div class="card-title italic">Waiting for signal data</div>
+			{/if}
+		</div>
+	</div>
 {/if}
 
+{#if lightStatus}
+	<div class="card bg-base-100 shadow-xl w-2/3">
+		<div class="card-body">
+			<div class="card-title">Raw Signal Data</div>
+			<JSONTree value={lightStatus} />
+		</div>
+	</div>
 {/if}
 
 <style>
@@ -138,28 +148,31 @@ Waiting for signal data
 		color: red;
 	}
 
+	/*	
 	h1 {
-			color: #2196f3;
-			font-family: 'Comic Sans MS';
-			font-size: 3.5em;
-			text-align: center;
-		}
-	h2
-	{
-			color: grey;
-			font-family: 'Calibri';
-			font-size: 2em;
-			text-align: center;
+		color: #2196f3;
+		font-family: 'Comic Sans MS';
+		font-size: 3.5em;
+		text-align: center;
 	}
-	textarea {  width: 35%; 
-				height: 250px;
-				box-sizing: border-box;
-				border: 4px solid #d4d4d4;
-				display: block;
-				margin-left: auto;
-    			margin-right: auto;
-				font-size: 1.5em;
- 				font-family: 'Calibri';
-				text-align: center;
-				}
+
+	h2 {
+		color: grey;
+		font-family: 'Calibri';
+		font-size: 2em;
+		text-align: center;
+	}
+	div {
+		width: 35%;
+		height: 250px;
+		box-sizing: border-box;
+		border: 4px solid #d4d4d4;
+		display: block;
+		margin-left: auto;
+		margin-right: auto;
+		font-size: 1.5em;
+		font-family: 'Calibri';
+		text-align: center;
+	}
+	*/
 </style>
