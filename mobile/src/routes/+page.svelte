@@ -89,7 +89,7 @@
 </div>
 
 {#if errors.length > 0}
-	<h2 class="error">Errors</h2>
+	<h2 class="text-error">Errors</h2>
 	<ol>
 		{#each errors as error}
 			<li>{error}</li>
@@ -97,7 +97,7 @@
 	</ol>
 {/if}
 
-<div class="card bg-base-100 shadow-xl w-2/3">
+<div class="card bg-base-100 shadow-xl w-full max-w-3xl">
 	<div class="card-body">
 		{#if !pos}
 			<div class="card-title italic">Waiting for phone position...</div>
@@ -112,7 +112,7 @@
 </div>
 
 {#if pos}
-	<div class="card bg-base-100 shadow-xl w-2/3">
+	<div class="card bg-base-100 shadow-xl w-full max-w-3xl">
 		<div class="card-body">
 			<div class="card-title">Signal data</div>
 			<p>Group: {signalGroup}</p>
@@ -120,7 +120,7 @@
 		</div>
 	</div>
 
-	<div class="card bg-base-100 shadow-xl w-2/3">
+	<div class="card bg-base-100 shadow-xl w-full max-w-3xl">
 		<div class="card-body">
 			{#if lightStatus}
 				<div class="card-title">Signal Group Data</div>
@@ -135,44 +135,10 @@
 {/if}
 
 {#if lightStatus}
-	<div class="card bg-base-100 shadow-xl w-2/3">
+	<div class="card bg-base-100 shadow-xl w-full max-w-3xl">
 		<div class="card-body">
 			<div class="card-title">Raw Signal Data</div>
 			<JSONTree value={lightStatus} />
 		</div>
 	</div>
 {/if}
-
-<style>
-	.error {
-		color: red;
-	}
-
-	/*	
-	h1 {
-		color: #2196f3;
-		font-family: 'Comic Sans MS';
-		font-size: 3.5em;
-		text-align: center;
-	}
-
-	h2 {
-		color: grey;
-		font-family: 'Calibri';
-		font-size: 2em;
-		text-align: center;
-	}
-	div {
-		width: 35%;
-		height: 250px;
-		box-sizing: border-box;
-		border: 4px solid #d4d4d4;
-		display: block;
-		margin-left: auto;
-		margin-right: auto;
-		font-size: 1.5em;
-		font-family: 'Calibri';
-		text-align: center;
-	}
-	*/
-</style>
