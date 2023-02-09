@@ -3,18 +3,28 @@
 #include "ArduinoNATS.h"
 #include <LwIP.h>
 
-char server_domain_name[] = "ecn-199-238.dhcp.ecn.purdue.edu"; 
+#define BAUD_RATE 115200
+#define UDP_TX_PACKET_MAX_SIZE 300
+#define UNIQUE_ID_SIZE 12
+
+int packet_size = 0;
+int num_rx = 1;
+int bytes_read;
+char packetBuffer[UDP_TX_PACKET_MAX_SIZE] = {0};
+unsigned char pktBuffer_character;
+HardwareSerial Data_Diode_Serial(PE7, PE8); //(Rx, Tx), UART7 below D0 and D1
+ModemClient client(PG9,PG14); //rx,tx pins
+
+char server_domain_name[] = "ibts-compute.ecn.purdue.edu";
 char nats_username[] = "diode";
 char nats_password[] = "9c7TCRO";
-D9,PG14); //rx,tx pins
-
 char publish_string[100];
 char unique_id_char[2]; 
 string unique_id = ""; //buffer to hold the 12 byte Unique address of traffic signal controller (tsc)
 
 NATS nats(
 	&client,
-	server_domain_name , NATS_DEFAULT_PORT, 
+	server_domain_name , 4223, 
   nats_username, nats_password
 );
 
@@ -77,7 +87,7 @@ packet_size = Data_Diode_Serial.read();
         Serial.print(num_rx++);
         Serial.print(" : ");
         Data_Diode_Serial.readBytes(packetBuffer,packet_size);
-        snprintf(publish_string, sizeof(publish_string), "PUB my_traffic.%s %d",unique_id.c_str(),2*(packet_size) );
+        snprintf(publish_string, sizeof(publish_string), "PUB traffic.%s %d",unique_id.c_str(),2*(packet_size) );
         client.ModemSerial.println(publish_string);
         for (int i = 0; i < packet_size ; i++)
         {

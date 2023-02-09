@@ -5,7 +5,7 @@ from nats.aio.client import Client as NATS
 import psycopg2
 from psycopg2 import Error
 
-STM_to_Intersection_ID = {"383135333431511600330032":"12544", "3831353334315104001C002A":"53693"}
+STM_to_Intersection_ID = {"383135333431511600330032":"53693", "3831353334315104001C002A":"179"}
 cursor = 0
 
 async def receive():
