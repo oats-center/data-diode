@@ -1,75 +1,149 @@
 #include <LwIP.h>
 #include <STM32Ethernet.h>
 #include <EthernetUdp.h>  // UDP library from: bjoern@cs.stanford.edu 
-#define BAUD_RATE 115200
-#define UDP_TX_PACKET_MAX_SIZE 300
-#define CIRCULAR_BUF_SIZE 3
+#include <CircularBuffer.h> // Sure, CB's aren't that hard, but if we going to live in the land of Arduino we might as well drink the wine...
 
-// local port to listen on; fixed to 6053 on most TSCs. But on some TSCs it will be 6054
-unsigned int localPort = 6053;  
+#define DEBUG
+#ifdef DEBUG
+  #define DEBUG_PRINT(...) Serial.printf(__VA_ARGS__)
+#else 
+  #define DEBUG_PRINT(...)
+#endif
+
+#define VERSION "0.2.0"
+#define BAUD_RATE 115200
+#define SPAT_BROADCAST_PORT 6053 
+
+struct SpatFrame {
+  uint16_t length { 0 };
+  byte *data { NULL };  
+};
+
+struct DiodeFrame {
+  uint16_t length { 0 };
+  uint16_t pos { 0 };
+  byte *data { NULL };
+};
+
+CircularBuffer<SpatFrame, 20> spatPending; 
+CircularBuffer<DiodeFrame, 20> diodePending;
+
+// debug: track rx-ed and dropped frame count
+uint64_t rx = 0;
+uint64_t dropped = 0;
+
 //IP address set in the TSC 
 IPAddress ip(169, 254, 168, 234); 
-
-HardwareSerial Tx_Diode_Serial(PE7, PE8); //(Rx, Tx), UART7 below D1 and D0
-byte mac[] = { 0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
-IPAddress gateway(169, 254, 0, 1);
-IPAddress myDns(169, 254, 0, 1);
 IPAddress subnet(255, 255, 0, 0);
 
+HardwareSerial Diode(PE7, PE8); //(Rx, Tx), UART7 below D1 and D0
+
 // An EthernetUDP instance to let us send and receive packets over UDP
-EthernetUDP Udp;
+EthernetUDP tscUDP;
 
-int num_pkt = 1; //num_pkt will count the number of pkts
-// buffers for receiving and sending data
-int packetSize[CIRCULAR_BUF_SIZE] = {0};
-char packetBuffer[CIRCULAR_BUF_SIZE][UDP_TX_PACKET_MAX_SIZE]; 
-unsigned char circular_buf_idx = 0;
-unsigned char current_buf_idx = 0;
-char myChar;
-
-void udp_parse_and_read()
-{
-  packetSize[circular_buf_idx] = Udp.parsePacket();
-   if ((packetSize[circular_buf_idx] > 0) && (packetSize[circular_buf_idx] < UDP_TX_PACKET_MAX_SIZE))
-   {
-      Udp.read(packetBuffer[circular_buf_idx], packetSize[circular_buf_idx]);
-      circular_buf_idx = (circular_buf_idx+1) % CIRCULAR_BUF_SIZE;
-   }
-}
 void setup() {
-  Tx_Diode_Serial.begin(BAUD_RATE);
+  // Debug console
   Serial.begin(BAUD_RATE);
-  Ethernet.begin(mac, ip, myDns, gateway, subnet);
-  Udp.begin(localPort);
+  Serial.println("=== Traffic Signal Controller ===");
+  Serial.println("Version: " VERSION);
 
-  Serial.println("Traffic Signal Controller");
-  Serial.println("   Ready to Transmit  ");
-  delay(500);
+  Serial.println("Opening serial port to world side...");
+  Diode.begin(BAUD_RATE);
+
+  Serial.println("Connecting to traffic signal controler SPaT broadbast...");
+  Ethernet.begin(ip, subnet);
+  tscUDP.onDataArrival(handleUDP);
+  tscUDP.begin(SPAT_BROADCAST_PORT);
+  
+  Serial.println("Diode started.");
 }
 
+// This *should* be async too, but we don't have anything else to do so this works.
 void loop() {
-  // if there's data available, read a packet
-    udp_parse_and_read();
-    if ((packetSize[current_buf_idx] > 0) && (packetSize[current_buf_idx] < UDP_TX_PACKET_MAX_SIZE))
-    {
-      Serial.print("pkt num ");
-      Serial.print(num_pkt++);
-      Serial.print("  :");
-      Tx_Diode_Serial.write(packetSize[current_buf_idx]);
-      // ************* read the packet into packetBufffer *******************
-      for (int i = 0; i < packetSize[current_buf_idx] ; i++) 
-      {
-        //reading the data in loop so that incoming data is not missed while in loop
-        //Any data read here will be written in adjacent circular buffer so that existing data will not be overwritten
-        //Circular buffer designed precisely for this reason 
-        udp_parse_and_read(); 
-        Tx_Diode_Serial.print(packetBuffer[current_buf_idx][i]);
-        myChar = packetBuffer[current_buf_idx][i];
-        Serial.print(myChar, HEX);
-        delayMicroseconds(100);
-      }    
-      packetSize[current_buf_idx] = 0;
-      current_buf_idx = (current_buf_idx + 1) % CIRCULAR_BUF_SIZE;
-      Serial.println();
-    }
+  DiodeFrame curFrame;
+
+  // Convert a SPaT frame if avaiable
+  if(!spatPending.isEmpty() && !diodePending.isFull()) {
+    struct SpatFrame spat = spatPending.pop();
+    diodePending.push(buildDiodeFrame(spat));
+    drop(&spat);
   }
+
+  // Get next diode frame, if done with last one
+  if (curFrame.data == NULL) {
+    DEBUG_PRINT("Passing new frame. Rx: %llu Dropped: %llu Pending: %u\n", rx, dropped, spatPending.size());
+    curFrame = diodePending.pop();
+  }
+
+  // Tend to diode UART 
+  tendDiode(&curFrame);
+}
+
+DiodeFrame buildDiodeFrame(SpatFrame spat) {    
+  struct DiodeFrame frame = {
+    length: spat.length,
+    pos: 0,
+    data: NULL
+  };
+
+  // Build the diode frame
+  // Note: It is a bit wasteful to copy `frame.data` into a new buffer only to copy it to the Serial TX buffer,
+  //       but I like the separation of concerns (diode frame is constructed in the logic loop)
+  //       and we have the computational power.
+  frame.data = (byte *)malloc(spat.length + sizeof(spat.length));
+  memcpy(&spat.length, &frame.data[0], sizeof(spat.length)); // Add length to frame
+  memcpy(spat.data, &frame.data[2], spat.length);
+
+  return frame;
+}
+
+void tendDiode(DiodeFrame *frame) {
+  // Nothing to do
+  if (frame->pos == frame->length) {
+    return;
+  }
+
+  // Check if the Serial TX buffer has space
+  uint16_t allowed = Serial.availableForWrite();
+
+  if (allowed > 0) {
+    uint16_t len = frame->length - frame->pos;
+    // Send as much as we can, without overflowing the TX buffer
+    len = len > allowed ? allowed : len;
+    Serial.write(&frame->data[frame->pos], len);
+    frame->pos += len;
+  }
+  
+  if (frame->length >= frame->pos) {
+    drop(frame);
+  }
+}
+
+// This function will be called when new data arrives. Treat like an ISR and just copy the data into a buffer for the main loop
+void handleUDP() {
+  struct SpatFrame frame;
+  frame.length = tscUDP.parsePacket();
+  frame.data = (byte *)malloc(frame.length);
+  tscUDP.read(frame.data, frame.length);
+
+  // We could do this check earlier, but we *have* to read the packet anyway, so if full just throw it away.
+  if(!spatPending.isFull()) {
+    spatPending.push(frame);
+    rx++;
+  } else {
+    DEBUG_PRINT("WARN: Pending buffer FULL. Dropping SPaT frame.");
+    dropped++;
+  }
+}
+
+// Free the dynamic memory allocated
+void drop(SpatFrame *frame) {
+  free(frame->data);
+  frame->data = NULL;
+}
+
+// Free the dynamic memory allocated
+void drop(DiodeFrame *frame) {
+  free(frame->data);
+  frame->data = NULL;
+}
