@@ -7,6 +7,8 @@
 #define UDP_TX_PACKET_MAX_SIZE 300
 #define UNIQUE_ID_SIZE 12
 
+int packet_size_lsb = 0;
+int packet_size_usb = 0;
 int packet_size = 0;
 int num_rx = 1;
 int bytes_read;
@@ -29,11 +31,11 @@ NATS nats(
 );
 
 
-void setup () {
+void setup () {	
     Serial.begin(BAUD_RATE);
     client.begin_serial(BAUD_RATE);
     Data_Diode_Serial.begin(BAUD_RATE);
-    delay(1000);
+    delay(4000);
     
     Serial.println("===============================================================");
     Serial.print("Unique ID of Transmitter is : ");
@@ -68,7 +70,9 @@ void setup () {
 // the loop function runs over and over again forever
 void loop() {
 //nats.process();
-packet_size = Data_Diode_Serial.read();
+packet_size_lsb = Data_Diode_Serial.read();
+packet_size_usb = Data_Diode_Serial.read();
+packet_size = (packet_size_usb << 16) + packet_size_lsb;
     delay(2);
     //if((packet_size > 0) && (packet_size < UDP_TX_PACKET_MAX_SIZE))
     //intentionally left commented to allow only a fixed size data read if needed
@@ -87,7 +91,7 @@ packet_size = Data_Diode_Serial.read();
         Serial.print(num_rx++);
         Serial.print(" : ");
         Data_Diode_Serial.readBytes(packetBuffer,packet_size);
-        snprintf(publish_string, sizeof(publish_string), "PUB traffic.%s %d",unique_id.c_str(),2*(packet_size) );
+        snprintf(publish_string, sizeof(publish_string), "PUB traffic.%s %d",unique_id.c_str(),packet_size );
         client.ModemSerial.println(publish_string);
         for (int i = 0; i < packet_size ; i++)
         {
@@ -95,7 +99,7 @@ packet_size = Data_Diode_Serial.read();
           Serial.print(pktBuffer_character < 16 ? "0" : "");
           Serial.print(pktBuffer_character, HEX);
           Serial.print("|");
-          client.hexbytewrite(pktBuffer_character);
+          client.ModemSerial.print(pktBuffer_character);
         }        
         //client.hexbytewrite((unsigned char)packetBuffer[0]);
         client.ModemSerial.println();

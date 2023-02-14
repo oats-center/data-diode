@@ -6,7 +6,7 @@ from nats.aio.client import Client as NATS
 CONNECT_URL = "ecn-199-238.dhcp.ecn.purdue.edu"
 USERNAME ="diode",
 PASSWORD ="9c7TCRO"
-STM_to_Intersection_ID = {"383135333431511600330032":"53693", "3831353334315104001C002A":"179"}
+STM_to_Intersection_ID = {"383135333431511600330032":"53693", "3831353334315104001C002A":"179", "38313533343151160034003C":"12345"}
                            
 '''
 Example parsing TSCBM formatted method with Python.
@@ -182,20 +182,20 @@ async def receive():
     async def help_request(msg):
         subject = msg.subject
         reply = msg.reply
-        spat_data = msg.data.decode()
+        spat_data = msg.data
         stm_id = subject.replace("traffic.","")
         print(stm_id)
         intersection_id = STM_to_Intersection_ID[stm_id]
         print("Received a message on '{subject} {reply}': {data}".format(
-            subject=intersection_id, reply=reply, data=spat_data))
+            subject=intersection_id, reply=reply, data=str(spat_data)))
         publish_to = "light-status."+intersection_id
-        if(spat_data):
+        '''if(spat_data):
             #print(spat_data[0])
-            payload = parse_TSCBM(round(time.time() * 1000), intersection_id, bytes.fromhex(spat_data))
+            payload = parse_TSCBM(round(time.time() * 1000), intersection_id, spat_data)
             payload_json = json.dumps(payload) 
             payload_json_bytes = bytes(payload_json, 'utf-8')
             #print(payload_json_bytes)
-            await nc.publish(publish_to,payload_json_bytes)
+            await nc.publish(publish_to,payload_json_bytes)'''
     
     await nc.subscribe("traffic.>", cb=help_request)
     
