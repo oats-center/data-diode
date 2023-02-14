@@ -74,7 +74,7 @@ void loop() {
     DEBUG_PRINT("=============================\n");
     diodePending.push(frame);
     drop(spat);
-    drop(frame);
+    //drop(frame);
   }
 
   // Get next diode frame, if done with last one
