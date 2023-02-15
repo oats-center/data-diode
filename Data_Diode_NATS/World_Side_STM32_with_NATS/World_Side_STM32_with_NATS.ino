@@ -72,7 +72,8 @@ void loop() {
 //nats.process();
 packet_size_lsb = Data_Diode_Serial.read();
 packet_size_usb = Data_Diode_Serial.read();
-packet_size = (packet_size_usb << 16) + packet_size_lsb;
+packet_size = (packet_size_usb << 8) + packet_size_lsb;
+Serial.println(packet_size);
     delay(2);
     //if((packet_size > 0) && (packet_size < UDP_TX_PACKET_MAX_SIZE))
     //intentionally left commented to allow only a fixed size data read if needed

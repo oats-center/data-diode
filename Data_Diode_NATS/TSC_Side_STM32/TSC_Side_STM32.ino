@@ -17,13 +17,13 @@
 
 struct SpatFrame {
   uint16_t length { 0 };
-  byte *data { NULL };  
+  uint8_t *data { NULL };  
 };
 
 struct DiodeFrame {
   uint16_t length { 0 };
   uint16_t pos { 0 };
-  byte *data { NULL };
+  uint8_t *data { NULL };
 };
 
 CircularBuffer<SpatFrame*, 20> spatPending; 
@@ -50,7 +50,7 @@ void setup() {
   Serial.println("Version: " VERSION);
 
   Serial.println("Opening serial port to world side...");
-  Diode.begin(BAUD_RATE);
+  Diode.begin(38400);
 
   Serial.println("Connecting to traffic signal controler SPaT broadbast...");
   Ethernet.begin(ip, subnet);
@@ -134,6 +134,13 @@ void sendDiode(DiodeFrame *frame) {
     len = len > allowed ? allowed : len;
     DEBUG_PRINT("len2 = %lu\n",len);
     Diode.write(&frame->data[frame->pos], len);
+    for (int i = frame->pos; i< frame->pos + len;i++ )
+    {
+      if(frame->data[i] < 16)
+        Serial.print(0,HEX);
+      Serial.print(frame->data[i],HEX);
+    }
+    Serial.println();
     DEBUG_PRINT("frame->pos1 = %lu\n",frame->pos);
     frame->pos += len;
      DEBUG_PRINT("frame->pos2 = %lu\n",frame->pos);
