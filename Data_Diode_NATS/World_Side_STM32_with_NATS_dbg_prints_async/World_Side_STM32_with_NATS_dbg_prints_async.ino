@@ -100,7 +100,7 @@ void process_diode() {
 
   // Find lines and queue
   uint8_t *line;
-  while ((line = membuf_getline(buf)) != NULL) {
+  while ((line = membuf_getline(&diodeRx)) != NULL) {
     natsPending.push(line);
   }
 }
