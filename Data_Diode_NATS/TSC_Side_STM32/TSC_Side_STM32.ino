@@ -62,9 +62,8 @@ void loop() {
   // Get next diode frame, if done with last one
   if (curFrame == NULL && !pending.isEmpty()) {
     curFrame = pending.shift();
-    DEBUG_PRINT("Sending (dropped: %d, pending: %d): %s\n", rx, dropped, curFrame->data);
+    DEBUG_PRINT("Sending rx: %d, dropped:%d: %s\n", rx, dropped, curFrame->data);
   }
-
   // Tend to diode UART
   if(curFrame != NULL) {
     sendDiode(curFrame);
@@ -80,51 +79,55 @@ void loop() {
 void sendDiode(struct Frame *frame) {
   // Check if the Serial TX buffer has space
   uint16_t allowed = Diode.availableForWrite();
-
+  DEBUG_PRINT("allowed =%d\n",allowed);
   if (allowed > 0) {
     uint16_t len = frame->length - frame->pos;
-
+    DEBUG_PRINT("point1 len=%d frame->length=%d frame->pos=%d\n",len,frame->length,frame->pos);
     // Send as much as we can, without overflowing the TX buffer
     len = len > allowed ? allowed : len;
     Diode.write(&frame->data[frame->pos], len);
-
+    
     frame->pos += len;
+    DEBUG_PRINT("point2 len=%d frame->length=%d frame->pos=%d\n",len,frame->length,frame->pos);
   }
 }
 
 // This function will be called when new data arrives.
 void handleUDP() {
-  struct Frame *frame = (struct Frame *)malloc(sizeof(struct Frame));
+  struct Frame *frame = (struct Frame *)calloc(1, sizeof(struct Frame));
 
   size_t pktLen = tscUDP.parsePacket();
-  size_t frameLength = pktLen + 4 + 1; // pkt + CRC32 + \n 
+  size_t dataLength = pktLen + 4; // pkt + CRC32
   
   // Read pkt data in  
-  uint8_t *fData = (uint8_t *)malloc(frameLength + 1); // Add NULL to make it print safe
-  tscUDP.read(fData, pktLen);
+  uint8_t *data = (uint8_t *)malloc(dataLength*sizeof(uint8_t)); // Add NULL to make it print safe
+  tscUDP.read(data, pktLen);
 
   // Compute CRC32
   crc.reset();
-  crc.add(fData, pktLen);
+  crc.add(data, pktLen);
   uint32_t crc32 = crc.getCRC();
   
   // Add CRC32 to data
-  memcpy(&fData[pktLen], &crc32, 4);
+  memcpy(&data[pktLen], &crc32, 4);
   
-  // Add \n frame marker
-  fData[frameLength] = '\n';
-  fData[frameLength+1] = '\0';
-
+  size_t b64Length = encode_base64_length(dataLength);   
+  
   // Add base64 encoded data
-  size_t b64Length = encode_base64_length(frameLength);
-  frame->data = (uint8_t *)malloc(b64Length);
-  encode_base64(fData, frameLength, frame->data);
+  frame->data = (uint8_t *)malloc(b64Length + 2); // base64 data + \n + \0 (so it's printf safe for debugging)
+  encode_base64(data, dataLength, frame->data);
+
+// Add \n frame marker
+  frame->data[b64Length] = '\n';
+  frame->data[b64Length + 1] = '\0';
+  frame->length = b64Length + 1;
 
   // Cean up UDP data 
-  free(fData);
+  free(data);
 
   // We could do this check earlier, but we *have* to read the packet anyway, so if full just throw it away.
   if(!pending.isFull()) {
+    DEBUG_PRINT("pending buf size : =%d\n", pending.size());
     pending.push(frame);
     rx++;
   } else {

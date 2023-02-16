@@ -1,0 +1,47 @@
+CMD:AT
+RESPONSE FROM THE MDM :
+"AT
+OK"
+========================================================================================================
+CMD:AT+NETOPEN
+RESPONSE FROM THE MDM :
+"AT+NETOPEN
+OK"
+========================================================================================================
+CMD:AT+NETOPEN
+RESPONSE FROM THE MDM :
+"AT+NETOPEN
+
++IP ERROR: Network is already opened
+
+ERROR"
+
+========================================================================================================
+CMD:AT+CIPOPEN=1,"TCP","128.46.199.13",4223
+RESPONSE FROM THE MDM :
+"AT+CIPOPEN=1,"TCP","128.46.199.13",4223
+
+OK"
+========================================================================================================
+CMD: AT+CIPRXGET=2,1
+RESPONSE FROM THE MDM :
+"AT+CIPRXGET=1
+OK"
+========================================================================================================
+CMD: AT+CIPRXGET=2,1
+RESPONSE FROM THE MDM : 
+"AT+CIPRXGET=2,1
+
++CIPRXGET: 2,1,331,0
+INFO {"server_id":"NAS3UC2JBSMT2AYDYRWJOFTU4NMZRXBKOA7PXUYGHBRS2ZEYJIWH2ZMW","server_name":"ibts-compute-diode","version":"2.8.4","proto":1,"git_commit":"66524ed","go":"go1.17.10","host":"0.0.0.0","port":4222,"headers":true,"auth_required":true,"max_payload":1048576,"jetstream":true,"client_id":103,"client_ip":"172.58.137.50"} 
+
+========================================================================================================
+OK"
+
+CMD: AT+CIPRXGET=2,1
+RESPONSE FROM THE MDM :
+"AT+CIPRXGET=2,1
+
++IP ERROR: No data
+
+ERROR"

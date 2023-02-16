@@ -51,11 +51,14 @@ uint16_t available = 0;
 CircularBuffer<struct natsmsg *, 20> natsPending;
 
 void setup() {
+  pinMode(D7,OUTPUT);
+  digitalWrite(D7,HIGH);
+  delay(5000);
   Serial.begin(BAUD_RATE);
   client.begin_serial(BAUD_RATE);
   Diode.begin(38400);
   delay(1000);
-
+  
   Serial.println("===============================================================");
   Serial.print("Unique ID of Transmitter is : ");
   for (int i = UNIQUE_ID_SIZE - 1; i >= 0; i--) {
@@ -65,9 +68,13 @@ void setup() {
   }
   Serial.println(unique_id.c_str());
 
+  init_modem_and_nats_connect();
   Serial.println();
   Serial.println("===================  WORLD SIDE OF DIODE  ==========================");
   Serial.println("=================== READY TO RECEIVE DATA ==========================");
+  digitalWrite(D7,LOW);
+  delay(10000);
+ 
 }
 
 // the loop function runs over and over again forever
@@ -76,7 +83,7 @@ void loop() {
 
   while(!natsPending.isEmpty()) {
     struct natsmsg *msg = natsPending.shift();
-    Serial.printf("New message. Length = %d\n", msg->length);
+    Serial.printf("New message. Length = %d data=%s\n", msg->length,msg->data);
     drop(msg);
   }
   //nats.process();
@@ -84,11 +91,10 @@ void loop() {
 
 void processDiode() {
   size_t available = Diode.available();
-
   size_t oldPos = inputPos;
-  Diode.readBytes(input, available);
+  
+  Diode.readBytes(&input[inputPos], available);
   inputPos += available;
-
   size_t start = 0;
   for (size_t i = oldPos; i < inputPos; i++) {
     if (input[i] == '\n') {
@@ -96,14 +102,15 @@ void processDiode() {
 
       msg->length = i - start;
 
-      msg->data = (uint8_t *)malloc(msg->length * sizeof(uint8_t));
-      memcpy(msg->data, &input[start], msg->length);
-      natsPending.push(msg);
+    msg->data = (uint8_t *)malloc((msg->length+1) * sizeof(uint8_t));
+    memcpy(msg->data, &input[start], msg->length);
+    msg->data[msg->length] = '\0';
+    natsPending.push(msg);
 
       start = i + 1;
     }
   }
-
+  
   // Shift buffer foward
   if(start != 0) {
     memmove(input, &input[start], inputPos - start);
