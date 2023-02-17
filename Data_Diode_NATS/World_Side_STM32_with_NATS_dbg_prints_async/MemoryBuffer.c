@@ -21,7 +21,7 @@ void membuf_drop(struct MemBuffer *buf) {
 
 // Prepare the buffer for new data, returning the pointer to copy said data to
 uint8_t *membuf_add(struct MemBuffer *buf, size_t nlen) {
-  membuf_ensure(buf, buf->length + nlen + 1);
+  membuf_ensure(buf, buf->pos + nlen + 1);
 
   uint8_t *p = &buf->data[buf->pos];
   buf->pos += nlen;

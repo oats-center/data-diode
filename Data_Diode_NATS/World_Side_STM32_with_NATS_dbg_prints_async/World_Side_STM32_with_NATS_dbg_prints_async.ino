@@ -1,20 +1,17 @@
+#include "ModemClient.h"
 #include "ArduinoNATS.h"
 #include "CircularBuffer.h"
 #include "MemoryBuffer.h"
-#include "ModemClient.h"
 #include <Arduino.h>
 #include <LwIP.h>
 
 #define BAUD_RATE 115200
 #define UNIQUE_ID_SIZE 12
 
-MemoryBuffer input;
-
 int packet_size = 0;
 int num_rx = 1;
 int bytes_read;
 
-struct Buffer diodeRx;
 HardwareSerial Diode(PE7, PE8);  //(Rx, Tx), UART7 below D0 and D1
 ModemClient client(PG9, PG14);   // rx,tx pins
 
@@ -38,6 +35,7 @@ void init_modem_and_nats_connect() {
   nats.process();
 }
 
+struct MemBuffer diodeRx;
 uint8_t *bufptr = NULL;
 uint16_t curpos = 0;
 uint16_t data_size = 0;
@@ -72,8 +70,6 @@ void setup() {
     "===================  WORLD SIDE OF DIODE  ==========================");
   Serial.println(
     "=================== READY TO RECEIVE DATA ==========================");
-  digitalWrite(D7, LOW);
-  delay(10000);
 }
 
 // the loop function runs over and over again forever
@@ -82,7 +78,7 @@ void loop() {
 
   while (!natsPending.isEmpty()) {
     char *msg = natsPending.shift();
-    Serial.printf("New message. Length = %d data=%s\n", strlen(msg), msg->data);
+    Serial.printf("New message. Length = %d data=%s\n", strlen(msg), msg);
     free(msg);
   }
   // nats.process();
@@ -99,7 +95,7 @@ void process_diode() {
   Diode.readBytes(membuf_add(&diodeRx, available), available);
 
   // Find lines and queue
-  uint8_t *line;
+  char *line;
   while ((line = membuf_getline(&diodeRx)) != NULL) {
     natsPending.push(line);
   }
