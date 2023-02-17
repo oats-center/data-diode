@@ -49,7 +49,7 @@ uint8_t *membuf_consume(struct MemBuffer *buf, size_t len) {
 // Consumer must free the memory
 char *membuf_getline(struct MemBuffer *buf) {
   // Look for end of line
-  uint8_t *end = memchr(buf->data, '\n', buf->pos);
+  uint8_t *end = (uint8_t *)memchr(buf->data, '\n', buf->pos);
 
   // If no line, return NULL
   if (end == NULL) {
