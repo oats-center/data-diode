@@ -70,6 +70,8 @@ bool ModemClient::connected() { return state >= M_CONNECTED; }
 
 bool ModemClient::initialized() { return state >= M_READY; }
 
+bool ModemClient::isError() { return state == M_ERROR; }
+
 const char *ModemClient::get_error() { return lastError; }
 
 void ModemClient::modem_stop() {

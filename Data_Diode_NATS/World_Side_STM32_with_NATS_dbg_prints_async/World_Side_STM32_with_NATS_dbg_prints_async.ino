@@ -59,6 +59,8 @@ void setup() {
   // Init the diode memory buffer
   membuf_init(&diodeRx);
 
+  client.reset();
+
   Serial.begin(BAUD_RATE);
   Diode.begin(BAUD_RATE);
 
@@ -78,6 +80,11 @@ void setup() {
 
 // the loop function runs over and over again forever
 void loop() {
+
+  if(!client.isError()) {
+    client.reset();
+    return;
+  } 
 
   process_diode();
   client.process();
