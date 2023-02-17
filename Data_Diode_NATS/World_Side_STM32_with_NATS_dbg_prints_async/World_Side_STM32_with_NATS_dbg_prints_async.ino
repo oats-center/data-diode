@@ -1,3 +1,10 @@
+#define DEBUG
+#ifdef DEBUG
+#define DEBUG_PRINT(...) Serial.printf(__VA_ARGS__)
+#else
+#define DEBUG_PRINT(...)
+#endif
+
 #include "ModemClient.h"
 #include "ArduinoNATS.h"
 #include "CircularBuffer.h"
@@ -13,7 +20,8 @@ int num_rx = 1;
 int bytes_read;
 
 HardwareSerial Diode(PE7, PE8);  //(Rx, Tx), UART7 below D0 and D1
-ModemClient client(PG9, PG14);   // rx,tx pins
+HardwareSerial Modem(PG6, PG14);
+ModemClient client(Modem, D7);
 
 char server_domain_name[] = "ibts-compute.ecn.purdue.edu";
 char nats_username[] = "diode";
@@ -21,10 +29,11 @@ char nats_password[] = "9c7TCRO";
 char publish_string[100];
 char unique_id_char[2];  // buffer to hold the 12 byte Unique address of traffic
                          // signal controller (tsc)
-string unique_id = "";
+String unique_id = "";
 
 NATS nats(&client, server_domain_name, 4223, nats_username, nats_password);
 
+/*
 void init_modem_and_nats_connect() {
   int is_modem_init = 0;
   do {
@@ -33,7 +42,9 @@ void init_modem_and_nats_connect() {
   while (!nats.connect())
     ;
   nats.process();
+  millis();
 }
+*/
 
 struct MemBuffer diodeRx;
 uint8_t *bufptr = NULL;
@@ -42,20 +53,16 @@ uint16_t data_size = 0;
 uint16_t available = 0;
 CircularBuffer<char *, 20> natsPending;
 
+void modemOn() {}
+
 void setup() {
   // Init the diode memory buffer
   membuf_init(&diodeRx);
 
-  pinMode(D7, OUTPUT);
-  digitalWrite(D7, HIGH);
-  delay(5000);
   Serial.begin(BAUD_RATE);
-  client.begin_serial(BAUD_RATE);
-  Diode.begin(38400);
-  delay(1000);
+  Diode.begin(BAUD_RATE);
 
-  Serial.println(
-    "===============================================================");
+  Serial.println("===============================================================");
   Serial.print("Unique ID of Transmitter is : ");
   for (int i = UNIQUE_ID_SIZE - 1; i >= 0; i--) {
     byte *unique_id_ptr = (byte *)(0x1FF0F420 + i);
@@ -64,17 +71,16 @@ void setup() {
   }
   Serial.println(unique_id.c_str());
 
-  init_modem_and_nats_connect();
+  //init_modem_and_nats_connect();
   Serial.println();
-  Serial.println(
-    "===================  WORLD SIDE OF DIODE  ==========================");
-  Serial.println(
-    "=================== READY TO RECEIVE DATA ==========================");
+  Serial.println("===================  WORLD SIDE OF DIODE  ==========================");
 }
 
 // the loop function runs over and over again forever
 void loop() {
+
   process_diode();
+  client.process();
 
   while (!natsPending.isEmpty()) {
     char *msg = natsPending.shift();

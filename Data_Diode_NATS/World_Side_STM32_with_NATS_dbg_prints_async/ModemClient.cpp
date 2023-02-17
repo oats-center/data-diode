@@ -1,397 +1,440 @@
-extern "C" {
-#include "string.h"
-}
 #include "ModemClient.h"
+#include "MemoryBuffer.h"
+#include <cstring>
 
-uint16_t ModemClient::_srcport = 1024;
+ModemClient::ModemClient(HardwareSerial modem, uint8_t pwr)
+    : modem(modem), pwr(pwr) {
 
-ModemClient::ModemClient(int rx, int tx)
-    : is_modem_initialised(false), is_net_open(false), is_tcp_open(false),
-      is_data_available(false), tcp_read_data(""), connect_tcp_string(""),
-      payload_of_subscribe_cmd(""), ModemSerial(rx, tx) {}
+  // Buffer for modem AT TX
+  membuf_init(&tx);
 
-int ModemClient::initialize_modem() {
-  Serial.println("in my initialize modem");
-  uint8_t answer = 0;
-  // checks if the module is started
-  Serial.println("====================================");
-  Serial.println("        INITIALIZING MODEM          ");
-  unsigned long previous = millis();
-  while ((answer == 0) &&
-         ((millis() - previous) <
-          15000)) { // Send AT every two seconds and wait for the answer
-    answer = sendATcmd_mdm_cli("AT", "OK", 2000);
-    delay(1000);
-  }
-  if (answer == 0) {
-    Serial.println();
-    Serial.println("    MODEM INITIALIZATION TAKING LONG TIME");
-    Serial.println("          RESET THE MODEM");
-    Serial.println("==================================================");
-    return answer;
-  } else {
-    Serial.println("==== DONE MODEM INITIALIZATION  ====");
-  }
+  // Buffer for modem AT RX
+  membuf_init(&rx);
 
-  answer = sendATcmd_mdm_cli("AT+NETOPEN", "+NETOPEN: 0", 5000);
-  if (answer) {
-    Serial.println("Network Connection established with server");
-  } else {
-    Serial.println("Network Connection already established");
-  }
+  // Buffer connection RX data
+  membuf_init(&tcp_rx);
 
-  is_net_open = true;
-  return true;
-  Serial.println("done my initialize modem");
+  modem_off();
 }
 
-void ModemClient::begin_serial(int baud_rate) { ModemSerial.begin(baud_rate); }
-
-uint8_t ModemClient::sendATcmd_mdm_cli(const char *ATcommand,
-                                       const char *expected_answer,
-                                       unsigned int timeout) {
-  Serial.println("in sendATcmd_mdm_cli");
-  uint8_t response_idx = 0, answer = 0;
-  char response[100];
-  unsigned long previous;
-  memset(response, '\0', 100); // Initialize the string
-  // delay(1000);
-  while (ModemSerial.available() > 0)
-    ModemSerial.read(); // Clean the input buffer
-  // delay(100);
-  Serial.println("response from modem : ");
-  ModemSerial.println(ATcommand); // Send the AT command
-                                  // this loop waits for the answer
-  previous = millis();
-  do {
-    if (ModemSerial.available() != 0) {
-      // if there are data in the UART input buffer, reads it and checks for the
-      // asnwer
-      response[response_idx] = ModemSerial.read();
-      response_idx++;
-      // check if the desired answer  is in the response of the module
-      if (strstr(response, expected_answer) != NULL) {
-        answer = 1;
-      }
-    }
-    // Waits for the asnwer with time out
-  } while ((answer == 0) && ((millis() - previous) < timeout));
-  Serial.println(response);
-  Serial.println("done sendATcmd_mdm_cli");
-  return answer;
+void ModemClient::process() {
+  _processSerial();
+  _tick();
 }
 
-String ModemClient::IpAddress2String(const IPAddress &ipAddress) {
-  return String(ipAddress[0]) + String(".") + String(ipAddress[1]) +
-         String(".") + String(ipAddress[2]) + String(".") +
-         String(ipAddress[3]);
-}
-
-string ModemClient::rx_tcp_data() {
-  char aux_string[50];
-  char response[1600];
-  unsigned long previous;
-  memset(response, '\0', 1600); // Initialize the string
-  snprintf(aux_string, sizeof(aux_string), "AT+CIPRXGET=2,1");
-  while (ModemSerial.available() > 0)
-    ModemSerial.read(); // Clean the input buffer
-
-  // delay(100);
-
-  uint8_t answer = 0;
-  int i = 0;
-  Serial.println("Rx response from modem : ");
-  ModemSerial.println(aux_string); // send the AT command
-  previous = millis();
-  do {
-    if (ModemSerial.available() != 0) {
-      // if there are data in the UART input buffer, reads it and checks for the
-      // asnwer
-      response[i] = ModemSerial.read();
-      i++;
-
-      if (strstr(response, "OK") != NULL) {
-        answer = 1;
-      }
-    }
-    // Waits for the asnwer with time out
-  } while ((answer == 0) && ((millis() - previous) < 1000));
-
-  Serial.println(response);
-  string str(response);
-  return str;
-}
-
-string ModemClient::get_remainlen_or_arg3(string resp, int return_arg) {
-  Serial.print("in get_remainlen_or_arg3 with ARG");
-  Serial.println(return_arg);
-
-  if (strstr(resp.c_str(), "AT+") != NULL) {
-    resp.erase(0, resp.find("AT+"));
-  } else if (strstr(resp.c_str(), "RECV") != NULL) {
-    resp.erase(0, resp.find("RECV"));
-  }
-
-  Serial.println("resp.c_str : ");
-  Serial.println(resp.c_str());
-
-  stringstream ss(resp);
-
-  string convert_to_str;
-  string temp_data;
-  int i = 0;
-  // typical resp is of the form AT+CIPRXGET=2,1 \n +CIPRXGET: 2,1,491,0 \n data
-  // \n payload \n OK; getline will split by newline; payload only in case of
-  // response to subscribe command
-  while (getline(ss, convert_to_str)) {
-    i++;
-    if ((i == ARG2) && (return_arg == ARG2)) {
-      break;
-    } else if ((i == ARG3) && (return_arg == ARG3)) {
-      temp_data = convert_to_str;
-      continue;
-    } else if (i == (ARG3 + 1)) {
-      break;
-    }
-  }
-
-  if (return_arg == ARG3) // return the read data
-  {
-    Serial.print("temp_data : ");
-    Serial.println(temp_data.c_str());
-
-    Serial.print("convert_to_str : ");
-    Serial.println(convert_to_str.c_str());
-
-    if (convert_to_str.length() > 0) {
-      Serial.println("populating payload_of_subscribe_cmd ");
-      Serial.println(convert_to_str.c_str());
-      payload_of_subscribe_cmd = convert_to_str;
-    }
-    return temp_data;
-  }
-  // if return arg is 2, then return the remaining data length, which will be
-  // read next i.e. the 0 in +CIPRXGET: 2,1,491,0
-  regex rgx("([^,]+)");
-  sregex_iterator current(convert_to_str.begin(), convert_to_str.end(), rgx);
-  smatch match = *(++(++(++current)));
-  string match_str = match.str();
-  return match_str;
-}
-
-void ModemClient::set_server_ip_port(const char *host, uint16_t port) {
-  Serial.println("in set_server_ip_port");
-  char aux_string[100];
-  char response[100];
-  uint8_t response_idx = 0, resp_answer = 0;
-
-  snprintf(aux_string, sizeof(aux_string), "AT+CDNSGIP=\"%s\"", host);
-  memset(response, '\0', 100); // Initialize the string
-  delay(100);
-  while (ModemSerial.available() > 0)
-    ModemSerial.read();            // Clean the input buffer
-  ModemSerial.println(aux_string); // Send the AT command
-
-  do {
-    if (ModemSerial.available() != 0) {
-      response[response_idx] = ModemSerial.read();
-      response_idx++;
-      if (strstr(response, "OK") != NULL) {
-        resp_answer = 1;
-      }
-    }
-  } while (resp_answer == 0);
-
-  string str(response);
-  regex rgx("\"([^\"]*)\""); // will split string delimited by "
-  sregex_iterator current(str.begin(), str.end(), rgx);
-  smatch match = *++(++current);
-  string ServerIP = match.str();
-  ServerIP.erase(remove(ServerIP.begin(), ServerIP.end(), '\"'),
-                 ServerIP.end()); // remove double quotes
-  string Server_Port = to_string(port);
-  Serial.println("done in set_server_ip_port");
-  Serial.printf("IP address of domain name \"%s\" is %s\n", host,
-                ServerIP.c_str());
-  sendATcmd_mdm_cli("AT+CIPCLOSE=1", "+CIPCLOSE: 1,0", 5000);
-  sendATcmd_mdm_cli("AT+CIPRXGET=1", "OK", 5000);
-  Serial.printf("Opening TCP Connection on port %s of IP Address %s\n",
-                Server_Port.c_str(), ServerIP.c_str());
-  snprintf(aux_string, sizeof(aux_string), "AT+CIPOPEN=1,\"%s\",\"%s\",%s",
-           "TCP", ServerIP.c_str(), Server_Port.c_str());
-  connect_tcp_string = aux_string;
-}
-
-int ModemClient::connect(const char *host, uint16_t port) {
-  Serial.println();
-  Serial.println("in ModemClient connect");
-  Serial.println();
-
-  uint8_t answer = 0;
-  char aux_string[300];
-
-  if (connect_tcp_string == "") {
-    set_server_ip_port(host, port);
-  }
-
-  // establishing conn;
-
-  answer = sendATcmd_mdm_cli(connect_tcp_string.c_str(), "+CIPOPEN: 1,0", 3000);
-  if (!answer) {
-    Serial.println("Issue with TCP CONNECT");
-    Serial.println("Resetting the modem ");
-    sendATcmd_mdm_cli("AT+CRESET", "OK", 2000);
-    return false;
-  }
-
-  Serial.println("TCP Connection Established with server");
-  Serial.println("Waiting for Server response...");
-  unsigned long previous = millis();
-  while ((0 == available()) && ((millis() - previous) < 5000))
-    ; // Wait for 5 seconds to receive the response for TCP connect
-  if (!is_data_available) {
-    Serial.println("Not received any response from Server");
-    Serial.println("Restablishing Connection...");
-    return false;
-  }
-  Serial.println("TCP Connection Established with server");
-  Serial.println("Ready to transmit and receive messages");
-
-  is_tcp_open = true;
-  return true;
-}
-
-int ModemClient::connect(IPAddress ip, uint16_t port) {
-  // to do
-  return 1;
-}
-
-void ModemClient::initiate_tcp_write() {
-  char aux_string[20];
-  snprintf(aux_string, sizeof(aux_string), "AT+CIPSEND=1,");
-  ModemSerial.println(aux_string);
-}
-
-void ModemClient::hexbytewrite(uint8_t hexbyte) {
-  ModemSerial.print(hexbyte < 16 ? "0" : "");
-  // Serial.print(hexbyte, HEX);
-  ModemSerial.print(hexbyte, HEX);
-}
-
-void ModemClient::stoptcpwrite() { ModemSerial.println(""); }
-
-int ModemClient::mywrite(const char *to_write) {
-  delay(10);
-  initiate_tcp_write();
-  delay(10);
-  Serial.println(to_write);
-  ModemSerial.println(to_write);
-  stoptcpwrite();
-
-  return 1;
-}
-size_t ModemClient::write(uint8_t b) { return write(&b, 1); }
-
-size_t ModemClient::write(const uint8_t *buf, size_t size) {
-  mywrite((char *)buf);
-  return 1;
-}
-
-int ModemClient::available() {
-  if (is_data_available == false) {
-    Serial.print("returning : ");
-    Serial.println(is_data_available);
-    string tcp_resp_local;
-    // sendATcmd_mdm_cli("AT+CIPRXGET=1", "OK", 5000);
-    tcp_resp_local = rx_tcp_data();
-    /*
-    if (strstr(tcp_resp_local.c_str(), "ERROR") == NULL)
-    {
-      tcp_read_data = get_remainlen_or_arg3(tcp_resp_local,ARG3);
-    */
-    do {
-      tcp_resp_local = rx_tcp_data();
-      if (strstr(tcp_resp_local.c_str(), "ERROR") != NULL)
-        break;
-      tcp_read_data += get_remainlen_or_arg3(tcp_resp_local, ARG3);
-    } while (stoi(get_remainlen_or_arg3(tcp_resp_local, ARG2)));
-    Serial.print("tcp_read_data before payload append: ");
-    Serial.println(tcp_read_data.c_str());
-    if (tcp_read_data.length() > 0) {
-      if (payload_of_subscribe_cmd.length() > 0) {
-        tcp_read_data += '\n';
-        tcp_read_data += payload_of_subscribe_cmd;
-        payload_of_subscribe_cmd = "";
-        Serial.print("tcp_read_data after payload append: ");
-        Serial.println(tcp_read_data.c_str());
-      }
-      is_data_available = true;
-      for (int i = 0; i < tcp_read_data.length() - 1; i++) {
-        my_char_queue.push(tcp_read_data[i]);
-      }
-      my_char_queue.push('\0');
-      tcp_read_data = "";
-    } else {
-      is_data_available = false;
-      tcp_read_data = "";
-      my_char_queue = queue<char>();
-    }
-  }
-  Serial.print("returning : ");
-  Serial.println(is_data_available);
-  return is_data_available;
-}
-
-int ModemClient::read() {
-  uint8_t char_to_ret = 0;
-  if ((my_char_queue.front() != '\0') && (my_char_queue.front() != '\n')) {
-    char_to_ret = my_char_queue.front();
-    my_char_queue.pop();
-    Serial.print("returning from read :");
-    Serial.println(char_to_ret);
-    return char_to_ret;
-  } else {
-    my_char_queue = queue<char>();
-    is_data_available = false;
-    Serial.print("returning from else read :");
-    Serial.println("-1");
+int ModemClient::connect(const char *host, const uint16_t prt) {
+  // We only allow one connection, so may only connect when in READY
+  if (state != M_READY) {
     return -1;
   }
-}
 
-int ModemClient::read(uint8_t *buf, size_t size) {
-  // to implement
+  port = prt;
+
+  // Determine the host IP address
+  membuf_str(&tx, "AT+CDNSGIP=\"");
+  membuf_str(&tx, host);
+  membuf_str(&tx, "\"\n");
+
   return 0;
-}
-
-int ModemClient::peek() {
-  // to implement
-  return 0;
-}
-
-void ModemClient::flush() {
-  // TODO: a real check to ensure transmission has been completed
 }
 
 void ModemClient::stop() {
-  if (is_tcp_open == true) {
-    Serial.println("tcp conn closing");
-    sendATcmd_mdm_cli("AT+CIPCLOSE=1", "+CIPCLOSE: 1,0", 5000);
-    is_tcp_open = false;
+  if (state >= M_CONNECTED) {
+    return;
+  }
+
+  // TODO: stop even if not >= M_CONNECTED?
+  modem_stop();
+}
+
+size_t ModemClient::write(const uint8_t *buf, size_t size) {
+  if (state != M_CONNECTED) {
+    DEBUG_PRINT("[WARN] write() called when not connected.\n");
+    return -1;
+  }
+
+  struct MemBuffer *b = (struct MemBuffer *)malloc(sizeof(struct MemBuffer));
+  membuf_init(b);
+  membuf_cpy(b, buf, size);
+
+  tcp_tx.push(b);
+
+  return size;
+}
+
+int ModemClient::available() { return membuf_size(&tcp_rx); }
+
+int ModemClient::read() { return membuf_first(&tcp_rx); }
+
+bool ModemClient::connected() { return state >= M_CONNECTED; }
+
+bool ModemClient::initialized() { return state >= M_READY; }
+
+const char *ModemClient::get_error() { return lastError; }
+
+void ModemClient::modem_stop() {
+  // Open connection
+  membuf_str(&tx, "AT+CIPCLOSE=1");
+
+  CHANGE_STATE(M_STOPPING);
+}
+
+void ModemClient::modem_off() {
+  digitalWrite(pwr, LOW);
+  CHANGE_STATE(M_POWER_OFF);
+}
+
+void ModemClient::modem_on() {
+  digitalWrite(pwr, HIGH);
+  CHANGE_STATE(M_POWER_ON);
+}
+
+void ModemClient::modem_reset() {
+  modem_off();
+
+  // Clear UART RX
+  while (modem.available())
+    modem.read();
+
+  membuf_clear(&rx);
+  membuf_clear(&tx);
+  membuf_clear(&tcp_rx);
+  tcp_tx.clear();
+
+  pinMode(pwr, OUTPUT);
+
+  modem.begin(MODEM_BAUD_RATE);
+
+  CHANGE_STATE(M_RESET);
+}
+
+void ModemClient::modem_send_at() {
+  membuf_str(&tx, "AT\n");
+
+  CHANGE_STATE(M_POLL);
+}
+
+void ModemClient::modem_open_network() {
+  membuf_str(&tx, "AT+NETOPEN\n");
+
+  CHANGE_STATE(M_NET_OPEN);
+}
+
+void ModemClient::modem_connect() {
+  // Open connection
+  snprintf((char *)&_at, sizeof(_at), "AT+CIPOPEN=1,\"TCP\",%s,%d\n", ip, port);
+  membuf_str(&tx, _at);
+
+  CHANGE_STATE(M_CONNECTING);
+}
+
+void ModemClient::modem_send() {
+  if (!tcp_tx.isEmpty()) {
+
+    snprintf((char *)&_at, sizeof(_at), "AT+CIPSEND=1,%zu",
+             membuf_size(tcp_tx.first()));
+    membuf_str(&tx, _at);
+
+    CHANGE_STATE(M_WAITING_TO_SEND);
   }
 }
 
-uint8_t ModemClient::connected() {
-  uint8_t is_tcp_connected = 0;
-  if (is_tcp_open) {
-    is_tcp_connected = 1;
+void ModemClient::_tick() {
+  switch (state) {
+  case M_ERROR:
+    break;
+
+  case M_POWER_OFF:
+    // Do nothing. Forever.
+    break;
+
+  case M_RESET:
+    // TODO: How long to keep off durring reset?
+    if (TIME_HAS_BEEN(1000)) {
+      modem_on();
+    }
+    break;
+
+  // Hard power on modem
+  case M_POWER_ON:
+    // TODO: How long to wait before trying "AT" poll?
+    if (TIME_HAS_BEEN(1000)) {
+      modem_send_at();
+    }
+    break;
+
+  // Waiting for OK response. Hard restart after 5 second
+  case M_POLL:
+    // TODO: How long to wait for AT?
+    if (TIME_HAS_BEEN(1000)) {
+      DEBUG_PRINT("[ERROR] Cell modem did not respond.\n");
+      // TODO: Update lastError
+      CHANGE_STATE(M_ERROR);
+    }
+    break;
+
+  // Waiting for network open response
+  case M_NET_OPEN:
+    // TODO: How long to wait ?
+    if (TIME_HAS_BEEN(5000)) {
+      DEBUG_PRINT("[ERROR] Cell modem did not respond.\n");
+      // TODO: Update lastError
+      CHANGE_STATE(M_ERROR);
+    }
+    break;
+
+  case M_READY:
+    // Nothing to do
+    break;
+
+  case M_CONNECTING:
+    // TODO: How long to wait ?
+    if (TIME_HAS_BEEN(5000)) {
+      DEBUG_PRINT("[ERROR] Cell modem did not respond.\n");
+      // TODO: Update lastError
+      CHANGE_STATE(M_ERROR);
+    }
+    break;
+
+  case M_STOPPING:
+    // TODO: How long to wait?
+    if (TIME_HAS_BEEN(5000)) {
+      DEBUG_PRINT("[ERROR] Cell modem disconnect timeout.\n");
+      // TODO: Update lastError
+      CHANGE_STATE(M_ERROR);
+    }
+    break;
+
+  case M_CONNECTED:
+    modem_send();
+    break;
+
+  case M_WAITING_TO_SEND:
+    if (TIME_HAS_BEEN(100)) {
+      DEBUG_PRINT("[ERROR] Cell modem did not accept TCP RX data.\n");
+      // TODO: Update lastError
+      CHANGE_STATE(M_ERROR);
+    }
+
+  case M_SENDING:
+    struct MemBuffer *buf = tcp_tx.first();
+
+    // Send queued AT command TX
+    size_t allowed = modem.availableForWrite();
+    size_t size = membuf_size(buf);
+
+    if (allowed && size) {
+      size_t len = size > allowed ? allowed : size;
+      modem.write(membuf_head(buf), len);
+
+      // Clean up if done sending
+      if (membuf_shift(buf, len) == 0) {
+        membuf_drop(tcp_tx.shift());
+      }
+    }
+
+    break;
   }
-
-  return is_tcp_connected;
 }
-
-uint8_t ModemClient::status() {}
-
-ModemClient::operator bool() {}
 
 // Private Methods
+// Note: This function must be non-blocking
+void ModemClient::_processSerial() {
+
+  if (state == M_ERROR) {
+    return;
+  }
+
+  // Receive any modem RX
+  size_t available = modem.available();
+
+  if (!available) {
+    return;
+  }
+
+  // Copy UART bytes into buffer
+  modem.readBytes(membuf_add(&rx, available), available);
+
+  // We are receiving a packet, so don't process as typical AT commands
+  // NOTE: The docs suggest there is NOT <CR><LF> at the end of TCP RX data
+  if (tcp_bytes_to_recv) {
+    size_t size = membuf_size(&rx);
+    size_t len = tcp_bytes_to_recv > size ? size : tcp_bytes_to_recv;
+
+    // Copy from typical AT RX buffer to TCP RX buffer
+    membuf_take(membuf_add(&tcp_rx, len), &rx, len);
+    tcp_bytes_to_recv -= len;
+  }
+
+  // If we are not actively receiving a packet, process UART as AT commands
+  if (!tcp_bytes_to_recv) {
+    char *line;
+
+    // Send queued AT command TX
+    size_t allowed = modem.availableForWrite();
+    size_t size = membuf_size(&tx);
+
+    if (allowed && size) {
+      size_t len = size > allowed ? allowed : size;
+      modem.write(membuf_head(&tx), len);
+      membuf_shift(&tx, len);
+    }
+
+    // Loop over all available lines and drive state machine
+    while ((line = membuf_getline(&rx)) != NULL) {
+
+      if (strcmp(line, "OK") == 0) {
+        if (state == M_POLL) {
+          CHANGE_STATE(M_NET_OPEN);
+          continue;
+        }
+
+      } else if (strcmp(line, "+NETOPEN") == 0) {
+        int ret;
+
+        if (sscanf(line, "+NETOPEN: 1,%d", &ret) != 1) {
+          DEBUG_PRINT("[ERROR] Invalid NETOPEN response: %s\n", line);
+          CHANGE_STATE(M_ERROR);
+          break;
+        }
+
+        if (ret != 0) {
+          DEBUG_PRINT("[ERROR] NETOPEN error: %s\n", line);
+          CHANGE_STATE(M_ERROR);
+          break;
+        }
+
+        CHANGE_STATE(M_READY);
+
+      } else if (strcmp(line, "+CDNSGIP") == 0) {
+        int ret;
+
+        if (sscanf(line, "+CDNSGIP: %d,%*s,%15s", &ret, (char *)&ip) == 2) {
+          DEBUG_PRINT("[ERROR] Invalid CDNSGIP response: %s\n", line);
+          CHANGE_STATE(M_ERROR);
+          break;
+        }
+
+        if (ret != 1) {
+          DEBUG_PRINT("[ERROR] DNS lookup error: %s\n", line);
+          CHANGE_STATE(M_ERROR);
+          break;
+        }
+
+        // start connection
+        modem_connect();
+
+      } else if (strcmp(line, "+CIPOPEN") == 0) {
+        int ret;
+
+        if (sscanf(line, "+CIPOPEN: 1,%d", &ret) != 1) {
+          DEBUG_PRINT("[ERROR] Invalid CIPOPEN response: %s\n", line);
+          CHANGE_STATE(M_ERROR);
+          break;
+        }
+
+        if (ret != 0) {
+          DEBUG_PRINT("[ERROR] Connection error: %s\n", line);
+          CHANGE_STATE(M_ERROR);
+          break;
+        }
+
+        CHANGE_STATE(M_CONNECTED);
+
+      } else if (strcmp(">", line) == 0) {
+        if (state == M_WAITING_TO_SEND) {
+          CHANGE_STATE(M_SENDING);
+        } else {
+          DEBUG_PRINT("[ERROR] Modem requested data without being in waiting "
+                      "to send state %s\n",
+                      line);
+          CHANGE_STATE(M_ERROR);
+          break;
+        }
+
+      } else if (strcmp(line, "+CIPSEND") == 0) {
+        size_t rSend, cSend;
+
+        if (sscanf(line, "+CIPSEND: 1,%zd,%zd", &rSend, &cSend) != 2) {
+          DEBUG_PRINT("[ERROR] Invalid CIPSEND response: %s\n", line);
+          CHANGE_STATE(M_ERROR);
+          break;
+        }
+
+        if (rSend != cSend) {
+          DEBUG_PRINT("[ERROR] Could only send parital packet: %s\n", line);
+          CHANGE_STATE(M_ERROR);
+          break;
+        }
+
+        CHANGE_STATE(M_CONNECTED);
+
+      } else if (strcmp(line, "+CIPCLOSE") == 0) {
+        int ret;
+
+        if (sscanf(line, "+CIPCLOSE: 1,%d", &ret) != 1) {
+          DEBUG_PRINT("[ERROR] Invalid CIPCLOSE response: %s\n", line);
+          CHANGE_STATE(M_ERROR);
+          break;
+        }
+
+        if (ret != 0) {
+          DEBUG_PRINT("[ERROR] Connection close error: %s\n", line);
+          CHANGE_STATE(M_ERROR);
+          break;
+        }
+
+        CHANGE_STATE(M_NET_OPEN);
+
+      } else if (strcmp(line, "+IPD") == 0) {
+        size_t length;
+        if (sscanf(line, "+IPD(%zd)", &length) != 1) {
+          DEBUG_PRINT("[ERROR] Invalid CDNSGIP response: %s\n", line);
+          CHANGE_STATE(M_ERROR);
+          break;
+        }
+
+        tcp_bytes_to_recv = length;
+        break;
+
+      } else if (strcmp(line, "ERROR") == 0) {
+        DEBUG_PRINT("[ERROR] Unknown ERROR response");
+        CHANGE_STATE(M_ERROR);
+        break;
+
+      } else if (strcmp(line, "+CIPERROR") == 0) {
+        DEBUG_PRINT("[ERROR] CIPERROR: %s", line);
+        CHANGE_STATE(M_ERROR);
+        break;
+
+      } else if (strcmp(line, "+IP ERROR") == 0) {
+        DEBUG_PRINT("[ERROR] IP Error: %s", line);
+        CHANGE_STATE(M_ERROR);
+        break;
+
+      } else if (strcmp(line, "RECV FROM:") == 0) {
+        // Ignore RECV FROM because we only have one tcp_rx buf.
+
+      } else if (strcmp(line, "") == 0) {
+        // Ignore blank lines
+
+      } else {
+        DEBUG_PRINT("[ERROR] Unknown message: %s", line);
+        CHANGE_STATE(M_ERROR);
+        break;
+      }
+
+      if (state == M_ERROR) {
+        if (lastError != NULL) {
+          free(lastError);
+          lastError = NULL;
+        }
+
+        lastError = line;
+        break;
+      } else {
+        free(line);
+      }
+    }
+  }
+}

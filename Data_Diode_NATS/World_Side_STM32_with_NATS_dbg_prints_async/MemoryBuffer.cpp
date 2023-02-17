@@ -31,19 +31,61 @@ uint8_t *membuf_add(struct MemBuffer *buf, size_t nlen) {
   return p;
 }
 
-// Consume the first len bytes and return a copy of it.
-// Consumer must free the memory
-uint8_t *membuf_consume(struct MemBuffer *buf, size_t len) {
-  uint8_t *p = (uint8_t *)malloc(len * sizeof(uint8_t));
-  memcpy(p, buf->data, len);
+// Prepare the buffer and copy said data
+void membuf_cpy(struct MemBuffer *buf, const void *data, size_t nlen) {
+  membuf_ensure(buf, buf->pos + nlen + 1);
 
+  memcpy(&buf->data[buf->pos], data, nlen);
+  buf->pos += nlen;
+
+  buf->data[nlen] = '\0'; // Make buffer printf safe just in case
+}
+
+// Prepare the buffer to add a new string, and then add the string
+void membuf_str(struct MemBuffer *buf, const char *str) {
+  size_t len = strlen(str);
+
+  memcpy(membuf_add(buf, len), str, len);
+}
+
+// Drop the first len bytes from the buffer
+size_t membuf_shift(struct MemBuffer *buf, size_t len) {
   memmove(buf->data, &buf->data[len], buf->pos - len);
 
   buf->pos -= len;
   buf->data[buf->pos] = '\0';
 
-  return p;
+  return membuf_size(buf);
 }
+
+// Delete everything from buffer
+void membuf_clear(struct MemBuffer *buf) { buf->pos = 0; }
+
+// Number of bytes currently stored in buffer
+size_t membuf_size(struct MemBuffer *buf) { return buf->pos; }
+
+// Take the first len bytes and return a copy of it.
+// Consumer must free the memory
+void membuf_take(void *dest, struct MemBuffer *buf, size_t len) {
+  // Copy data to destination
+  memcpy(dest, buf->data, len);
+
+  // Shift the buffer down
+  membuf_shift(buf, len);
+}
+
+// Read first byte in buffer
+// Note: This is not very efficient
+uint8_t membuf_first(struct MemBuffer *buf) {
+  uint8_t byte = buf->data[0];
+
+  membuf_shift(buf, 1);
+
+  return byte;
+}
+
+// Pointer to frst byte of underlying storage
+uint8_t *membuf_head(struct MemBuffer *buf) { return buf->data; }
 
 // Get a line from the buffer. Return a NULL terminated *copy*
 // Consumer must free the memory
@@ -58,9 +100,14 @@ char *membuf_getline(struct MemBuffer *buf) {
 
   // Length of line
   size_t lineLen = end - buf->data + 1; // Include the delimiter
-  //
+  if (*(end - 1) == '\r') {
+    lineLen--;
+  }
+
+  char *line = (char *)malloc(lineLen * sizeof(char));
+  membuf_take(line, buf, lineLen);
+
   // Replace the delimiter with a null character
-  char *line = (char *)membuf_consume(buf, lineLen);
   line[lineLen - 1] = '\0';
 
   return line;

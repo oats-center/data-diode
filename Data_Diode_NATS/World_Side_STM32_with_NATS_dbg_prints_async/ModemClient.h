@@ -1,75 +1,120 @@
-#ifndef modemclient_h
-#define modemclient_h
-#include <string>
-#include <regex>
-#include <sstream>
-#include <queue>
-#include "Arduino.h"	
-#include "Print.h"
-#include "Client.h"
-#include "IPAddress.h"
-using namespace std;
+#ifndef INCLUDE_MODEM_CLIENT_H
+#define INCLUDE_MODEM_CLIENT_H
 
-#if defined(RAMEND) && defined(RAMSTART) && ((RAMEND - RAMSTART) <= 2048)
-#define MAX_SOCK_NUM_MODEM 4
-#else
-#define MAX_SOCK_NUM_MODEM 8
+#include "CircularBuffer.h"
+#include "MemoryBuffer.h"
+#include <stdio.h>
+#include <stdlib.h>
+
+// #define ANDREW
+#ifdef ANDREW
+class HardwareSerial {
+public:
+  void readBytes(void *buf, size_t len);
+  size_t available();
+  size_t availableForWrite();
+  void write(void *b, size_t len);
+  uint8_t read();
+  void begin(int);
+};
+uint32_t millis();
+typedef uint8_t PinName;
+#define OUTPUT 1
+#define HIGH 1
+#define LOW 0
+void pinMode(PinName, uint8_t);
+void digitalWrite(PinName, uint8_t);
 #endif
 
-#define ARG2 2
-#define ARG3 3
+#ifndef ANDREW
+#include <Arduino.h>
+#endif
 
+#define MODEM_BAUD_RATE 115200
 
-class ModemClient : public Client {
+#ifndef DEBUG_PRINT
+#define DEBUG_PRINT(...)
+#endif
+
+// Note: Measuring time is hard when the clock can overflow. Instead, compute
+// and compare durations
+// Checks if it has been at least x milliseconds since the last TIME_MARK()
+#define TIME_HAS_BEEN(x) millis() - timeMark > x
+#define TIME_MARK() timeMark = millis()
+
+#define CHANGE_STATE(x)                                                        \
+  {                                                                            \
+    state = x;                                                                 \
+    TIME_MARK();                                                               \
+  }
+
+enum State {
+  M_ERROR,
+  M_POWER_OFF,
+  M_RESET,
+  M_POWER_ON,
+  M_POLL,
+  M_READY,
+  M_NET_OPEN,
+  M_CONNECTING,
+  M_STOPPING,
+  M_CONNECTED,
+  M_WAITING_TO_SEND,
+  M_SENDING,
+};
+
+class ModemClient {
 
 public:
-  //constructor
-  ModemClient(int rx, int);
+  // constructor
+  ModemClient(HardwareSerial modem, uint8_t pwr);
 
-  //non virtual constructor
-  HardwareSerial ModemSerial;
-  bool is_modem_initialised;
-  bool is_net_open;
-  bool is_tcp_open;
-  bool is_data_available;
-  string connect_tcp_string;
-  string tcp_read_data;
-  string payload_of_subscribe_cmd;
-  queue<char> my_char_queue;
-  int initialize_modem();
-  void begin_serial(int baud_rate);
-  String IpAddress2String(const IPAddress& ipAddress);
-  uint8_t sendATcmd_mdm_cli(const char* ATcommand, const char* expected_answer, unsigned int timeout);
-  string rx_tcp_data();
-  string get_remainlen_or_arg3(string resp, int return_arg);
+  int connect(const char *host, uint16_t port);
+  void stop();
+  size_t write(const uint8_t *buf, size_t size);
+  int available();
+  int read(); // TODO: remove
+  int getline();
+  bool connected();
+  const char *get_error();
 
-  uint8_t status();
-  virtual int connect(IPAddress ip, uint16_t port);
-  virtual int connect(const char *host, uint16_t port);
-  int mywrite(const char* to_write);
-  void initiate_tcp_write();
-  void set_server_ip_port(const char* host, uint16_t port);
-  void hexbytewrite(uint8_t hexbyte);
-  void stoptcpwrite();
-  virtual size_t write(uint8_t);
-  virtual size_t write(const uint8_t *buf, size_t size);
-  virtual int available();
-  virtual int read();
-  virtual int read(uint8_t *buf, size_t size);
-  virtual int peek();
-  virtual void flush();
-  virtual void stop();
-  virtual uint8_t connected();
-  virtual operator bool();
-  friend class WiFiServer;
-  
+  bool initialized();
+  void on();
+  void off();
+  void reset();
 
-  using Print::write;
+  void process(); // Non-blocking, call regularly in main loop.
 
-private:
-  static uint16_t _srcport;
-  uint16_t  _socket;
-  
+protected:
+  HardwareSerial modem;
+  struct MemBuffer tx;
+  struct MemBuffer rx;
+  struct MemBuffer tcp_rx;
+  CircularBuffer<struct MemBuffer *, 10> tcp_tx;
+  size_t tcp_bytes_to_recv = 0;
+
+  uint8_t pwr;
+  enum State state = M_ERROR;
+  uint32_t timeMark;
+  char *lastError;
+
+  char ip[16]; // XXX.XXX.XXX.XXX
+  uint16_t port;
+
+  char _at[100];
+
+  void _processSerial();
+  void _tick();
+  void _change_state(State nState);
+
+  void modem_reset();
+  void modem_send_at();
+  void modem_open_network();
+  void modem_connect();
+  void modem_send();
+  void modem_off();
+  void modem_on();
+  void modem_stop();
 };
 
 #endif
