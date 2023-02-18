@@ -1,10 +1,3 @@
-#define DEBUG
-#ifdef DEBUG
-#define DEBUG_PRINT(...) Serial.printf(__VA_ARGS__)
-#else
-#define DEBUG_PRINT(...)
-#endif
-
 #include "ModemClient.h"
 #include "ArduinoNATS.h"
 #include "CircularBuffer.h"
@@ -20,7 +13,7 @@ int num_rx = 1;
 int bytes_read;
 
 HardwareSerial Diode(PE7, PE8);  //(Rx, Tx), UART7 below D0 and D1
-HardwareSerial Modem(PG6, PG14);
+HardwareSerial Modem(PG9, PG14);
 ModemClient client(Modem, D7);
 
 char server_domain_name[] = "ibts-compute.ecn.purdue.edu";
@@ -57,12 +50,15 @@ void modemOn() {}
 
 void setup() {
   // Init the diode memory buffer
-  membuf_init(&diodeRx);
-
-  client.reset();
-
   Serial.begin(BAUD_RATE);
-  Diode.begin(BAUD_RATE);
+  Diode.begin(38400);
+  client.init();
+  delay(500);
+  membuf_init(&diodeRx);
+  
+  DEBUG_PRINT("calling reset\n");
+  client.reset();
+  DEBUG_PRINT("out of reset\n");
 
   Serial.println("===============================================================");
   Serial.print("Unique ID of Transmitter is : ");
@@ -81,10 +77,14 @@ void setup() {
 // the loop function runs over and over again forever
 void loop() {
 
-  if(!client.isError()) {
+  if(client.isError()) {
     client.reset();
     return;
   } 
+
+  if(client.initialized() && !client.connected()) {
+    client.connect("ibts-compute.ecn.purdue.edu", 4223);
+  }
 
   process_diode();
   client.process();

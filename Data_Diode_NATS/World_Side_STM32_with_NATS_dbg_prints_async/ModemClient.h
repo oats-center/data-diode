@@ -3,36 +3,16 @@
 
 #include "CircularBuffer.h"
 #include "MemoryBuffer.h"
+#include <Arduino.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-// #define ANDREW
-#ifdef ANDREW
-class HardwareSerial {
-public:
-  void readBytes(void *buf, size_t len);
-  size_t available();
-  size_t availableForWrite();
-  void write(void *b, size_t len);
-  uint8_t read();
-  void begin(int);
-};
-uint32_t millis();
-typedef uint8_t PinName;
-#define OUTPUT 1
-#define HIGH 1
-#define LOW 0
-void pinMode(PinName, uint8_t);
-void digitalWrite(PinName, uint8_t);
-#endif
-
-#ifndef ANDREW
-#include <Arduino.h>
-#endif
-
 #define MODEM_BAUD_RATE 115200
 
-#ifndef DEBUG_PRINT
+#define DEBUG
+#ifdef DEBUG
+#define DEBUG_PRINT(...) Serial.printf(__VA_ARGS__)
+#else
 #define DEBUG_PRINT(...)
 #endif
 
@@ -40,10 +20,11 @@ void digitalWrite(PinName, uint8_t);
 // and compare durations
 // Checks if it has been at least x milliseconds since the last TIME_MARK()
 #define TIME_HAS_BEEN(x) millis() - timeMark > x
-#define TIME_MARK() timeMark = millis()
+#define TIME_MARK() timeMark = millis();
 
 #define CHANGE_STATE(x)                                                        \
-  {                                                                            \
+  {            \
+    DEBUG_PRINT("Change State from %d ,to %d\n",state,x);                                         \
     state = x;                                                                 \
     TIME_MARK();                                                               \
   }
@@ -54,8 +35,9 @@ enum State {
   M_RESET,
   M_POWER_ON,
   M_POLL,
-  M_READY,
   M_NET_OPEN,
+  M_READY,
+  M_DNS_LOOKUP,
   M_CONNECTING,
   M_STOPPING,
   M_CONNECTED,
@@ -79,10 +61,12 @@ public:
   const char *get_error();
 
   bool initialized();
+  bool isError();
   void on();
   void off();
   void reset();
-
+  void init();
+  
   void process(); // Non-blocking, call regularly in main loop.
 
 protected:
@@ -96,6 +80,7 @@ protected:
   uint8_t pwr;
   enum State state = M_ERROR;
   uint32_t timeMark;
+  uint8_t expected_errors = 0;
   char *lastError;
 
   char ip[16]; // XXX.XXX.XXX.XXX
