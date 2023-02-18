@@ -1,6 +1,4 @@
 #include "ModemClient.h"
-#include "MemoryBuffer.h"
-#include <cstring>
 
 ModemClient::ModemClient(HardwareSerial modem, uint8_t pwr)
     : modem(modem), pwr(pwr) {
@@ -80,6 +78,8 @@ size_t ModemClient::write(const uint8_t *buf, size_t size) {
 int ModemClient::available() { return membuf_size(&tcp_rx); }
 
 int ModemClient::read() { return membuf_first(&tcp_rx); }
+
+char * ModemClient::getline() { return membuf_getline(&tcp_rx); }
 
 bool ModemClient::connected() { return state >= M_CONNECTED; }
 

@@ -288,42 +288,14 @@ private:
              (pass == NULL) ? "null" : pass);
   }
 
-  char *client_readline(size_t cap = 128) {
-    Serial.println();
-    Serial.println("calling nats client_readline");
-    char *buf = (char *)malloc(cap * sizeof(char));
-    int i;
-    int int_to_hold_char;
-    char c;
-    Serial.println("=====================");
-    for (i = 0; client->available();) {
-      int_to_hold_char = client->read();
-      c = (char)int_to_hold_char;
-      Serial.println(c);
-      if (c == '\r')
-        continue;
-      if (c == '\n')
-        break;
-      if (int_to_hold_char == -1)
-        break;
-      if (i >= cap)
-        buf = (char *)realloc(buf, (cap *= 2) * sizeof(char) + 1);
-      buf[i++] = c;
-    }
-    Serial.println("=====================");
-    buf[i] = '\0';
-    Serial.print("buf : ");
-    Serial.println(buf);
-    Serial.println("done calling nats client_readline");
-    Serial.println();
-    return buf;
-  }
-
   void recv() {
     // read line from client
     Serial.println();
     Serial.println("calling nats.recv");
-    char *buf = client_readline();
+    char *buf = client->getline();
+    if (buf == NULL) {
+      return;
+    }
 
     // tokenize line by space
     size_t argc = 0;
@@ -366,7 +338,12 @@ private:
       int payload_size = atoi((argc == 5) ? argv[4] : argv[3]) + 1;
       Serial.print("payload_size : ");
       Serial.println(payload_size);
-      char *payload_buf = client_readline(payload_size);
+      char *payload_buf;
+      
+      // FIXME: We really don't want to block here... but I don't see a quick workaround at the moment.
+      while((payload_buf = client->getline()) != NULL) {
+        // Block untill message is RX'd
+      }
       Serial.print("payload_buf : ");
       Serial.println(payload_buf);
 
@@ -464,15 +441,7 @@ public:
   void publish(const char *subject, const bool msg) {
     publish(subject, (msg) ? "true" : "false");
   }
-  void publish_fmt(const char *subject, const char *fmt, ...) {
-    va_list args;
-    va_start(args, fmt);
-    char *buf;
-    vasprintf(&buf, fmt, args);
-    va_end(args);
-    publish(subject, buf);
-    free(buf);
-  }
+
   void publishf(const char *subject, const char *fmt, ...) {
     va_list args;
     va_start(args, fmt);

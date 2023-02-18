@@ -48,6 +48,8 @@ enum State {
 class ModemClient {
 
 public:
+  char *lastError;
+
   // constructor
   ModemClient(HardwareSerial modem, uint8_t pwr);
 
@@ -55,8 +57,8 @@ public:
   void stop();
   size_t write(const uint8_t *buf, size_t size);
   int available();
-  int read(); // TODO: remove
-  int getline();
+  int read();
+  char * getline();
   bool connected();
   const char *get_error();
 
@@ -81,7 +83,7 @@ protected:
   enum State state = M_ERROR;
   uint32_t timeMark;
   uint8_t expected_errors = 0;
-  char *lastError;
+
 
   char ip[16]; // XXX.XXX.XXX.XXX
   uint16_t port;
