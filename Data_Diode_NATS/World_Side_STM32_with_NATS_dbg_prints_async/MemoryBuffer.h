@@ -7,6 +7,14 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <Arduino.h>
+
+#define DEBUG
+#ifdef DEBUG
+#define DEBUG_PRINT(...) Serial.printf(__VA_ARGS__)
+#else
+#define DEBUG_PRINT(...)
+#endif
 
 #ifndef MEMBUF_GROW_BYTES
 // The number of bytes to a grow a too short buffer by

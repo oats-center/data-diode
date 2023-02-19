@@ -60,26 +60,19 @@ void ModemClient::reset() {
   modem_reset();
 }
 
-size_t ModemClient::write(const uint8_t *buf, size_t size) {
-  if (state != M_CONNECTED) {
-    DEBUG_PRINT("[WARN] write() called when not connected.\n");
-    return -1;
+int ModemClient::available() { 
+  if(tcp_bytes_to_recv){
+   return 0;
   }
-
-  struct MemBuffer *b = (struct MemBuffer *)malloc(sizeof(struct MemBuffer));
-  membuf_init(b);
-  membuf_cpy(b, buf, size);
-
-  tcp_tx.push(b);
-
-  return size;
+  else{
+    return membuf_size(&tcp_rx);
+  }
 }
 
-int ModemClient::available() { return membuf_size(&tcp_rx); }
-
 int ModemClient::read() { return membuf_first(&tcp_rx); }
-
-char * ModemClient::getline() { return membuf_getline(&tcp_rx); }
+char * ModemClient::getline() { 
+  DEBUG_PRINT("SIZE OF TCP RX=%d\n",tcp_rx.pos);
+  return membuf_getline(&tcp_rx); }
 
 bool ModemClient::connected() { return state >= M_CONNECTED; }
 
@@ -124,7 +117,7 @@ void ModemClient::modem_reset() {
 
 void ModemClient::modem_send_at() {
   membuf_str(&tx, "AT\r\n");
-  DEBUG_PRINT("modem_send_at lenofbuf=%d", membuf_size(&tx));
+  DEBUG_PRINT("modem_send_at lenofbuf=%d\n", membuf_size(&tx));
   CHANGE_STATE(M_POLL);
 }
 
@@ -144,9 +137,10 @@ void ModemClient::modem_connect() {
 
 void ModemClient::modem_send() {
   if (!tcp_tx.isEmpty()) {
-
-    snprintf((char *)&_at, sizeof(_at), "AT+CIPSEND=1,%zu",
+    DEBUG_PRINT("in modem_send");
+    snprintf((char *)&_at, sizeof(_at), "AT+CIPSEND=1,%u",
              membuf_size(tcp_tx.first()));
+    DEBUG_PRINT("mdm send AT cmd = %s\n",&_at);
     membuf_str(&tx, _at);
 
     CHANGE_STATE(M_WAITING_TO_SEND);
@@ -212,7 +206,7 @@ void ModemClient::_tick() {
 
   case M_CONNECTING:
     // TODO: How long to wait ?
-    if (TIME_HAS_BEEN(1000)) {
+    if (TIME_HAS_BEEN(3000)) {
       DEBUG_PRINT("[ERROR] Cell modem did not respond.\n");
       // TODO: Update lastError
       CHANGE_STATE(M_ERROR);
@@ -241,7 +235,7 @@ void ModemClient::_tick() {
 
   case M_SENDING:
     struct MemBuffer *buf = tcp_tx.first();
-
+    DEBUG_PRINT("in M_SENDING");
     // Send queued AT command TX
     size_t allowed = modem.availableForWrite();
     size_t size = membuf_size(buf);
@@ -249,10 +243,11 @@ void ModemClient::_tick() {
     if (allowed && size) {
       size_t len = size > allowed ? allowed : size;
       modem.write(membuf_head(buf), len);
-
+      Serial.write(membuf_head(buf), len);
       // Clean up if done sending
       if (membuf_shift(buf, len) == 0) {
         membuf_drop(tcp_tx.shift());
+        CHANGE_STATE(M_CONNECTED);
       }
     }
 
@@ -273,18 +268,36 @@ void ModemClient::_processSerial() {
 
   // Copy UART bytes into buffer
   if (available) {
+    DEBUG_PRINT("available=%d\n",available);
      modem.readBytes(membuf_add(&rx, available), available);
   }
 
     // We are receiving a packet, so don't process as typical AT commands
   // NOTE: The docs suggest there is NOT <CR><LF> at the end of TCP RX data
-  if (tcp_bytes_to_recv) {
-    size_t size = membuf_size(&rx);
-    size_t len = tcp_bytes_to_recv > size ? size : tcp_bytes_to_recv;
+  
+
+  if(tcp_bytes_to_recv)
+  {
+    if(tcp_bytes_to_recv <= membuf_size(&rx))
+    {
+      DEBUG_PRINT("rx data : %s\n",rx.data);
+      DEBUG_PRINT("rx.data[rx.pos-1] = %d]\n",rx.data[membuf_size(&rx)-1]);
+      DEBUG_PRINT("rx.data[rx.pos-2] = %d]\n",rx.data[membuf_size(&rx)-2]);
+      DEBUG_PRINT("rx.data[rx.pos-3] = %d]\n",rx.data[membuf_size(&rx)-3]);
+      DEBUG_PRINT("rx.data[rx.pos-4] = %d]\n",rx.data[membuf_size(&rx)-4]);
+    }
+  }
+  if (tcp_bytes_to_recv  && (tcp_bytes_to_recv <= membuf_size(&rx))) {
+    DEBUG_PRINT("tcp_bytes_to_recv = %d\n",tcp_bytes_to_recv);
+    //size_t size = membuf_size(&rx);
+    //DEBUG_PRINT("size = %d\n",size);
+    //size_t len = tcp_bytes_to_recv > size ? size : tcp_bytes_to_recv;
 
     // Copy from typical AT RX buffer to TCP RX buffer
-    membuf_take(membuf_add(&tcp_rx, len), &rx, len);
-    tcp_bytes_to_recv -= len;
+    membuf_take(membuf_add(&tcp_rx, tcp_bytes_to_recv), &rx, tcp_bytes_to_recv); //len+1 to accomodate one extra newline that mdem IPD command misses 
+    //tcp_bytes_to_recv -= len;
+        //DEBUG_PRINT("\n");
+    tcp_bytes_to_recv = 0;
   }
 
   // If we are not actively receiving a packet, process UART as AT commands
@@ -304,7 +317,9 @@ void ModemClient::_processSerial() {
     }
 
     // Loop over all available lines and drive state machine
+
     while ((line = membuf_getline(&rx)) != NULL) {
+      DEBUG_PRINT("FROM rx line read\n");
       DEBUG_PRINT("line=%s\n",line);
       if (strncmp(line, "OK",2) == 0) {
         if (state == M_POLL) {
@@ -378,6 +393,7 @@ void ModemClient::_processSerial() {
         CHANGE_STATE(M_CONNECTED);
 
       } else if (strncmp(">", line,1) == 0) {
+        DEBUG_PRINT("received >");
         if (state == M_WAITING_TO_SEND) {
           CHANGE_STATE(M_SENDING);
         } else {
@@ -420,16 +436,16 @@ void ModemClient::_processSerial() {
           break;
         }
 
-        CHANGE_STATE(M_NET_OPEN);
+        CHANGE_STATE(M_READY);
 
       } else if (strncmp(line, "+IPD",4) == 0) {
         size_t length;
-        if (sscanf(line, "+IPD(%zd)", &length) != 1) {
+        if (sscanf(line, "+IPD%zd", &length) != 1) {
           DEBUG_PRINT("[ERROR] Invalid CDNSGIP response: %s\n", line);
           CHANGE_STATE(M_ERROR);
           break;
         }
-
+        DEBUG_PRINT("%d",length);
         tcp_bytes_to_recv = length;
         break;
 
@@ -450,11 +466,14 @@ void ModemClient::_processSerial() {
         expected_errors++;
         CHANGE_STATE(M_READY);
       
-      } else if (strncmp(line, "+IP ERROR",9) == 0) {
+      } 
+      else if(strncmp(line, "+IPCLOSE",8) == 0){
+          DEBUG_PRINT("+IPCLOSE : %s",line);
+          CHANGE_STATE(M_READY);
+
+      }else if (strncmp(line, "+IP ERROR",9) == 0) {
         DEBUG_PRINT("[ERROR] IP Error: %s", line);
         CHANGE_STATE(M_ERROR);
-        break;
-
       } else if (strncmp(line, "RECV FROM:",10) == 0) {
         // Ignore RECV FROM because we only have one tcp_rx buf.
 
@@ -487,4 +506,22 @@ void ModemClient::_processSerial() {
       }
     }
   }
+}
+
+size_t ModemClient::write(const uint8_t *buf, size_t size) {
+  //delay(100);
+  //DEBUG_PRINT("buf=%s,size=%d state=%d",(char *)buf,size,state);
+
+  if (state != M_CONNECTED) {
+    DEBUG_PRINT("WARN : write called when not connected\n");
+    return -1;
+  }
+  //DEBUG_PRINT("in client write\n");
+  struct MemBuffer *b = (struct MemBuffer *)malloc(sizeof(struct MemBuffer));
+  membuf_init(b);
+  membuf_cpy(b, buf, size);
+
+  tcp_tx.push(b);
+  DEBUG_PRINT("pushed buf = %s",buf);
+  return size;
 }

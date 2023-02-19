@@ -9,13 +9,6 @@
 
 #define MODEM_BAUD_RATE 115200
 
-#define DEBUG
-#ifdef DEBUG
-#define DEBUG_PRINT(...) Serial.printf(__VA_ARGS__)
-#else
-#define DEBUG_PRINT(...)
-#endif
-
 // Note: Measuring time is hard when the clock can overflow. Instead, compute
 // and compare durations
 // Checks if it has been at least x milliseconds since the last TIME_MARK()
@@ -48,20 +41,18 @@ enum State {
 class ModemClient {
 
 public:
-  char *lastError;
-
   // constructor
   ModemClient(HardwareSerial modem, uint8_t pwr);
 
+  char* lastError;
   int connect(const char *host, uint16_t port);
   void stop();
   size_t write(const uint8_t *buf, size_t size);
   int available();
-  int read();
-  char * getline();
+  int read(); 
+  char* getline();
   bool connected();
   const char *get_error();
-
   bool initialized();
   bool isError();
   void on();
@@ -84,11 +75,10 @@ protected:
   uint32_t timeMark;
   uint8_t expected_errors = 0;
 
-
   char ip[16]; // XXX.XXX.XXX.XXX
   uint16_t port;
 
-  char _at[100];
+  char _at[200];
 
   void _processSerial();
   void _tick();

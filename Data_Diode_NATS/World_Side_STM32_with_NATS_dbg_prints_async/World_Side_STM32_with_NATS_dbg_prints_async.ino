@@ -12,8 +12,8 @@ int packet_size = 0;
 int num_rx = 1;
 int bytes_read;
 
-HardwareSerial Diode(PE7, PE8);  //(Rx, Tx), UART7 below D0 and D1
-HardwareSerial Modem(PG9, PG14);
+HardwareSerial Modem(PE7, PE8);  //(Rx, Tx), UART7 below D0 and D1
+HardwareSerial Diode(PG9, PG14);
 ModemClient client(Modem, D7);
 
 char server_domain_name[] = "ibts-compute.ecn.purdue.edu";
@@ -24,7 +24,7 @@ char unique_id_char[2];  // buffer to hold the 12 byte Unique address of traffic
 String unique_id = "";
 char pub_subject[33];
 
-NATS nats(&client, server_domain_name, 4223, nats_username, nats_password);
+NATS nats(&client, server_domain_name, 4223, "diode","9c7TCRO");
 
 struct MemBuffer diodeRx;
 uint8_t *bufptr = NULL;
@@ -33,8 +33,10 @@ uint16_t data_size = 0;
 uint16_t available = 0;
 CircularBuffer<char *, 20> natsPending;
 
+void modemOn() {}
+
 void nats_on_connect() {
-  nats.publishf("connect", "{\"id\": \"%s\", \"lastError\": \"%s\"}", unique_id, client.lastError ? client.lastError : "");
+  nats.publishf("connect", "{\"id\": \"%s\", \"lastError\": \"%s\"}", "random_id", client.lastError ? client.lastError : "");
 }
 
 void setup() {
@@ -45,10 +47,10 @@ void setup() {
   delay(500);
   membuf_init(&diodeRx);
 
-  // Unlimited reconnect attempts
   nats.max_reconnect_attempts = -1;
-  // Send a message on connect
-  nats.on_connect = &nats_on_connect;
+
+  Serial.printf("SERIAL_TX_BUFFER_SIZE = %d\n", SERIAL_TX_BUFFER_SIZE);
+  Serial.printf("SERIAL_RX_BUFFER_SIZE = %d\n", SERIAL_RX_BUFFER_SIZE);
 
   DEBUG_PRINT("calling reset\n");
   client.reset();
@@ -61,9 +63,13 @@ void setup() {
     sprintf(unique_id_char, "%02X", (*(unique_id_ptr)));
     unique_id += unique_id_char;
   }
-  sprintf(pub_subject, "traffic.%s", unique_id);
-  Serial.println(unique_id.c_str());
+  sprintf(pub_subject, "traffic.%s", unique_id.c_str());
+  Serial.println(pub_subject);
 
+    // Unlimited reconnect attempts
+  nats.max_reconnect_attempts = -1;
+  // Send a message on connect
+  nats.on_connect = &nats_on_connect;
   //init_modem_and_nats_connect();
   Serial.println();
   Serial.println("===================  WORLD SIDE OF DIODE  ==========================");
@@ -83,6 +89,7 @@ void loop() {
 
   process_diode();
   client.process();
+  nats.process();
 
   while (!natsPending.isEmpty()) {
     char *msg = natsPending.shift();
@@ -91,7 +98,6 @@ void loop() {
     free(msg);
   }
   
-  nats.process();
 }
 
 void process_diode() {

@@ -5,6 +5,7 @@
 #elif defined(SPARK)
 #include "application.h"
 #endif
+#include "ModemClient.h"
 
 #define NATS_CLIENT_LANG "arduino"
 #define NATS_CLIENT_VERSION "1.0.0"
@@ -52,14 +53,11 @@ class MillisTimer {
 public:
   MillisTimer(const unsigned long interval) : interval(interval) {}
   bool process() {
-    Serial.println("inside MillisTimer process");
     unsigned long ms = millis();
     if (ms < t || (ms - t) > interval) {
       t = ms;
-      Serial.println("returning TRUE from MillisTimer process");
       return true;
     }
-    Serial.println("returning FALSE from MillisTimer process");
     return false;
   }
 };
@@ -244,8 +242,9 @@ private:
   void send(const char *msg) {
     if (msg == NULL)
       return;
-    Serial.println();
     Serial.println("calling client->write");
+    //Serial.println(strlen(msg));
+    delay(20);
     client->write((uint8_t *)msg, strlen(msg));
     Serial.println("finished client->write");
   }
@@ -269,34 +268,68 @@ private:
     char *buf;
     vasprintf(&buf, fmt, args);
     va_end(args);
-    send(buf);
+    //Serial.printf("%s\n",buf);
+      send(buf);
     free(buf);
   }
 
   void send_connect() {
-    send_fmt("CONNECT {"
-             "\"verbose\": %s,"
-             "\"pedantic\": %s,"
-             "\"lang\": \"%s\","
-             "\"version\": \"%s\","
-             "\"user\": \"%s\","
-             "\"pass\": \"%s\""
-             "}",
-             NATS_CONF_VERBOSE ? "true" : "false",
-             NATS_CONF_PEDANTIC ? "true" : "false", NATS_CLIENT_LANG,
-             NATS_CLIENT_VERSION, (user == NULL) ? "null" : user,
-             (pass == NULL) ? "null" : pass);
+			send_fmt(
+					"CONNECT {"
+						"\"verbose\": %s,"
+						"\"pedantic\": %s,"
+						"\"lang\": \"%s\","
+						"\"version\": \"%s\","
+						"\"user\": \"%s\","
+						"\"pass\": \"%s\""
+					"}", 
+					NATS_CONF_VERBOSE? "true" : "false",
+					NATS_CONF_PEDANTIC? "true" : "false",
+					NATS_CLIENT_LANG,
+					NATS_CLIENT_VERSION,
+					(user == NULL)? "null" : user,
+					(pass == NULL)? "null" : pass);
+		}
+
+  char *client_readline(size_t cap = 128) {
+    Serial.println();
+    Serial.println("calling nats client_readline");
+    char *buf = (char *)malloc(cap * sizeof(char));
+    int i;
+    char c;
+    Serial.println("=====================");
+			for (i = 0; client->available();) {
+				char c = client->read();
+				if (c == '\r') continue;
+				if (c == '\n') break;
+				if (c == -1) break;
+				if (i >= cap) buf = (char*)realloc(buf, (cap *= 2) * sizeof(char) + 1);
+				buf[i++] = c;
+        Serial.printf("%c",buf[i]);
+			}
+    buf[i] = '\0';
+    Serial.printf("\n");
+    
+    Serial.println("=====================");
+    return buf;
   }
 
   void recv() {
     // read line from client
     Serial.println();
     Serial.println("calling nats.recv");
+    //char *buf = client_readline();
     char *buf = client->getline();
     if (buf == NULL) {
       return;
     }
-
+    /*
+    Serial.println(strlen(buf));
+    for(int i =0; i<strlen(buf);i++)
+    {
+      Serial.print(*(buf+i));
+    }
+    */
     // tokenize line by space
     size_t argc = 0;
     const char *argv[NATS_MAX_ARGV] = {};
@@ -326,7 +359,7 @@ private:
 
       // get subscription id
       int sid = atoi(argv[2]);
-
+      Serial.println(sid);
       // make sure sub for sid is not null
       if (subs[sid] == NULL) {
         free(buf);
@@ -338,14 +371,14 @@ private:
       int payload_size = atoi((argc == 5) ? argv[4] : argv[3]) + 1;
       Serial.print("payload_size : ");
       Serial.println(payload_size);
+      //char *payload_buf = client_readline(payload_size);
       char *payload_buf;
-      
+
       // FIXME: We really don't want to block here... but I don't see a quick workaround at the moment.
       while((payload_buf = client->getline()) != NULL) {
         // Block untill message is RX'd
       }
-      Serial.print("payload_buf : ");
-      Serial.println(payload_buf);
+      //Serial.printf("payload_buf : %s\n",payload_buf);
 
       // put data into event struct
       msg e = {argv[1], sid, (argc == 5) ? argv[3] : "", payload_buf,
@@ -367,12 +400,16 @@ private:
     } else if (strcmp(argv[0], NATS_CTRL_PONG) == 0) {
       outstanding_pings--;
     } else if (strcmp(argv[0], NATS_CTRL_INFO) == 0) {
-      Serial.print("in NATS_CTRL_INFO check");
+      Serial.print("in NATS_CTRL_INFO check\n");
       Serial.println("calling send_connect");
+      delay(500);
       send_connect();
       connected = true;
       if (on_connect != NULL)
+        {
+        delay(500);
         on_connect();
+        }
     }
 
     free(buf);
@@ -434,14 +471,17 @@ public:
       return;
     if (!connected)
       return;
-    send_fmt("PUB %s %s %lu", subject, (replyto == NULL) ? "" : replyto,
-             (unsigned long)strlen(msg));
+    
+			send_fmt("PUB %s %s %lu",
+					subject,
+					(replyto == NULL)? "" : replyto,
+					(unsigned long)strlen(msg));
+    Serial.printf("msg=%s\n",(msg == NULL) ? "" : msg);
     send((msg == NULL) ? "" : msg);
   }
   void publish(const char *subject, const bool msg) {
     publish(subject, (msg) ? "true" : "false");
   }
-
   void publishf(const char *subject, const char *fmt, ...) {
     va_list args;
     va_start(args, fmt);
@@ -496,9 +536,9 @@ public:
 
   void process() {
     if (client->connected()) {
-      Serial.println();
-      Serial.println("in NATS client->connected");
-      Serial.println();
+      //Serial.println();
+      //Serial.println("in NATS client->connected");
+      //Serial.println();
       if (client->available())
         recv();
       if (ping_timer.process())

@@ -8,7 +8,7 @@ void membuf_init(struct MemBuffer *buf) {
 
 void membuf_ensure(struct MemBuffer *buf, size_t length) {
   if (buf->length < length) {
-    buf->data = (uint8_t *)realloc(buf->data, buf->length + MEMBUF_GROW_BYTES);
+    buf->data = (uint8_t *)realloc(buf->data, length + MEMBUF_GROW_BYTES);
     buf->length += MEMBUF_GROW_BYTES;
   }
 }
@@ -51,7 +51,8 @@ void membuf_str(struct MemBuffer *buf, const char *str) {
 // Drop the first len bytes from the buffer
 size_t membuf_shift(struct MemBuffer *buf, size_t len) {
   memmove(buf->data, &buf->data[len], buf->pos - len);
-
+  DEBUG_PRINT("IN membuf_shift\n");
+  DEBUG_PRINT("len=%d buf->pos=%d\n",len,buf->pos);
   buf->pos -= len;
   buf->data[buf->pos] = '\0';
 
@@ -62,7 +63,7 @@ size_t membuf_shift(struct MemBuffer *buf, size_t len) {
 void membuf_clear(struct MemBuffer *buf) { buf->pos = 0; }
 
 // Number of bytes currently stored in buffer
-size_t membuf_size(struct MemBuffer *buf) { return buf->pos; }
+size_t membuf_size(struct MemBuffer *buf) {return buf->pos; }
 
 // Take the first len bytes and return a copy of it.
 // Consumer must free the memory
@@ -77,11 +78,11 @@ void membuf_take(void *dest, struct MemBuffer *buf, size_t len) {
 // Read first byte in buffer
 // Note: This is not very efficient
 uint8_t membuf_first(struct MemBuffer *buf) {
-  uint8_t byte = buf->data[0];
+  uint8_t my_byte = buf->data[0];
 
   membuf_shift(buf, 1);
 
-  return byte;
+  return my_byte;
 }
 
 // Pointer to frst byte of underlying storage
@@ -100,15 +101,20 @@ char *membuf_getline(struct MemBuffer *buf) {
 
   // Length of line
   size_t lineLen = end - buf->data + 1; // Include the delimiter
-  if (*(end - 1) == '\r') {
-    lineLen--;
-  }
+  DEBUG_PRINT("membuf_getline\n");
+  DEBUG_PRINT("end=%p\n",end);
+  DEBUG_PRINT("buf->data=%p\n",buf->data);
+  DEBUG_PRINT("lineLen=%p\n",lineLen);
 
   char *line = (char *)malloc(lineLen * sizeof(char));
   membuf_take(line, buf, lineLen);
 
-  // Replace the delimiter with a null character
-  line[lineLen - 1] = '\0';
+    if (line[lineLen - 2] == '\r') {
+    // Replace the delimiter with a null character
+    line[lineLen - 2] = '\0';
+  } else {
+    line[lineLen - 1] = '\0';
+  }
 
   return line;
 }
