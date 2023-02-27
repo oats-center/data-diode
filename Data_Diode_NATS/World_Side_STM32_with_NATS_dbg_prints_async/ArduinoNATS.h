@@ -19,7 +19,7 @@
 #endif
 
 #ifndef NATS_PING_INTERVAL
-#define NATS_PING_INTERVAL 120000UL
+#define NATS_PING_INTERVAL 25000UL
 #endif
 
 #ifndef NATS_RECONNECT_INTERVAL
@@ -44,14 +44,15 @@
 namespace NATSUtil {
 
 static const char alphanums[] =
-    "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
 class MillisTimer {
   const unsigned long interval;
   unsigned long t;
 
 public:
-  MillisTimer(const unsigned long interval) : interval(interval) {}
+  MillisTimer(const unsigned long interval)
+    : interval(interval) {}
   bool process() {
     unsigned long ms = millis();
     if (ms < t || (ms - t) > interval) {
@@ -62,18 +63,21 @@ public:
   }
 };
 
-template <typename T> class Array {
+template<typename T> class Array {
 private:
   T *data;
   size_t len;
   size_t cap;
 
 public:
-  Array(size_t cap = 32) : len(0), cap(cap) {
+  Array(size_t cap = 32)
+    : len(0), cap(cap) {
     data = (T *)malloc(cap * sizeof(T));
   }
 
-  ~Array() { free(data); }
+  ~Array() {
+    free(data);
+  }
 
 private:
   void resize() {
@@ -85,7 +89,9 @@ private:
   }
 
 public:
-  size_t const size() const { return len; };
+  size_t const size() const {
+    return len;
+  };
 
   void erase(size_t idx) {
     for (size_t i = idx; i < len; i++) {
@@ -101,7 +107,9 @@ public:
     data = (T *)malloc(cap * sizeof(T));
   }
 
-  T const &operator[](size_t i) const { return data[i]; }
+  T const &operator[](size_t i) const {
+    return data[i];
+  }
 
   T &operator[](size_t i) {
     while (i >= cap)
@@ -117,23 +125,27 @@ public:
     return i;
   }
 
-  T *ptr() { return data; }
+  T *ptr() {
+    return data;
+  }
 };
 
-template <typename T> class Queue {
+template<typename T> class Queue {
 
 private:
   class Node {
   public:
     T data;
     Node *next;
-    Node(T data, Node *next = NULL) : data(data), next(next) {}
+    Node(T data, Node *next = NULL)
+      : data(data), next(next) {}
   };
   Node *root;
   size_t len;
 
 public:
-  Queue() : root(NULL), len(0) {}
+  Queue()
+    : root(NULL), len(0) {}
   ~Queue() {
     Node *tmp;
     Node *n = root;
@@ -143,8 +155,12 @@ public:
       n = tmp;
     }
   }
-  bool empty() const { return root == NULL; }
-  size_t const size() const { return len; }
+  bool empty() const {
+    return root == NULL;
+  }
+  size_t const size() const {
+    return len;
+  }
   void push(T data) {
     root = new Node(data, root);
     len++;
@@ -156,10 +172,12 @@ public:
     len--;
     return n.data;
   }
-  T peek() { return root->data; }
+  T peek() {
+    return root->data;
+  }
 };
 
-}; // namespace NATSUtil
+};  // namespace NATSUtil
 
 class NATS {
 
@@ -184,15 +202,14 @@ private:
     int received;
     int max_wanted;
     Sub(sub_cb cb, int max_wanted = 0)
-        : cb(cb), received(0), max_wanted(max_wanted) {}
+      : cb(cb), received(0), max_wanted(max_wanted) {}
     void call(msg &e) {
-      Serial.println("inside Sub call");
       received++;
-      Serial.println("received : ");
-      Serial.println(received);
       cb(e);
     }
-    bool maxed() { return (max_wanted == 0) ? false : received >= max_wanted; }
+    bool maxed() {
+      return (max_wanted == 0) ? false : received >= max_wanted;
+    }
   };
 
   // Members --------------------------------------------- //
@@ -215,7 +232,7 @@ private:
   int reconnect_attempts;
 
 public:
-  bool connected;
+  bool connected = false;
 
   int max_outstanding_pings;
   int max_reconnect_attempts;
@@ -229,12 +246,12 @@ public:
 public:
   NATS(ModemClient *client, const char *hostname, int port = NATS_DEFAULT_PORT,
        const char *user = NULL, const char *pass = NULL)
-      : client(client), hostname(hostname), port(port), user(user), pass(pass),
-        ping_timer(NATS_PING_INTERVAL),
-        reconnect_timer(NATS_RECONNECT_INTERVAL), outstanding_pings(0),
-        reconnect_attempts(0), connected(false), max_outstanding_pings(3),
-        max_reconnect_attempts(-1), on_connect(NULL), on_disconnect(NULL),
-        on_error(NULL) {}
+    : client(client), hostname(hostname), port(port), user(user), pass(pass),
+      ping_timer(NATS_PING_INTERVAL),
+      reconnect_timer(NATS_RECONNECT_INTERVAL), outstanding_pings(0),
+      reconnect_attempts(0), connected(false), max_outstanding_pings(3),
+      max_reconnect_attempts(-1), on_connect(NULL), on_disconnect(NULL),
+      on_error(NULL) {}
 
   // Methods --------------------------------------------- //
 
@@ -242,11 +259,7 @@ private:
   void send(const char *msg) {
     if (msg == NULL)
       return;
-    Serial.println("calling client->write");
-    //Serial.println(strlen(msg));
-    delay(20);
     client->write((uint8_t *)msg, strlen(msg));
-    Serial.println("finished client->write");
   }
 
   int vasprintf(char **strp, const char *fmt, va_list ap) {
@@ -268,87 +281,45 @@ private:
     char *buf;
     vasprintf(&buf, fmt, args);
     va_end(args);
-    //Serial.printf("%s\n",buf);
-      send(buf);
+    send(buf);
     free(buf);
   }
 
   void send_connect() {
-			send_fmt(
-					"CONNECT {"
-						"\"verbose\": %s,"
-						"\"pedantic\": %s,"
-						"\"lang\": \"%s\","
-						"\"version\": \"%s\","
-						"\"user\": \"%s\","
-						"\"pass\": \"%s\""
-					"}", 
-					NATS_CONF_VERBOSE? "true" : "false",
-					NATS_CONF_PEDANTIC? "true" : "false",
-					NATS_CLIENT_LANG,
-					NATS_CLIENT_VERSION,
-					(user == NULL)? "null" : user,
-					(pass == NULL)? "null" : pass);
-		}
-
-  char *client_readline(size_t cap = 128) {
-    Serial.println();
-    Serial.println("calling nats client_readline");
-    char *buf = (char *)malloc(cap * sizeof(char));
-    int i;
-    char c;
-    Serial.println("=====================");
-			for (i = 0; client->available();) {
-				char c = client->read();
-				if (c == '\r') continue;
-				if (c == '\n') break;
-				if (c == -1) break;
-				if (i >= cap) buf = (char*)realloc(buf, (cap *= 2) * sizeof(char) + 1);
-				buf[i++] = c;
-        Serial.printf("%c",buf[i]);
-			}
-    buf[i] = '\0';
-    Serial.printf("\n");
-    
-    Serial.println("=====================");
-    return buf;
+    send_fmt(
+      "CONNECT {"
+      "\"verbose\": %s,"
+      "\"pedantic\": %s,"
+      "\"lang\": \"%s\","
+      "\"version\": \"%s\","
+      "\"user\": \"%s\","
+      "\"pass\": \"%s\""
+      "}\r\n",
+      NATS_CONF_VERBOSE ? "true" : "false",
+      NATS_CONF_PEDANTIC ? "true" : "false",
+      NATS_CLIENT_LANG,
+      NATS_CLIENT_VERSION,
+      (user == NULL) ? "null" : user,
+      (pass == NULL) ? "null" : pass);
   }
 
   void recv() {
-    // read line from client
-    Serial.println();
-    Serial.println("calling nats.recv");
-    //char *buf = client_readline();
     char *buf = client->getline();
     if (buf == NULL) {
       return;
     }
-    /*
-    Serial.println(strlen(buf));
-    for(int i =0; i<strlen(buf);i++)
-    {
-      Serial.print(*(buf+i));
-    }
-    */
+
     // tokenize line by space
     size_t argc = 0;
     const char *argv[NATS_MAX_ARGV] = {};
-    Serial.println("argv : ");
     for (int i = 0; i < NATS_MAX_ARGV; i++) {
       argv[i] = strtok((i == 0) ? buf : NULL, " ");
-      Serial.print(i);
-      Serial.print(" : ");
-      Serial.println(argv[i]);
       if (argv[i] == NULL)
         break;
       argc++;
     }
 
-    Serial.print("argc : ");
-    Serial.println((int)argc);
     // switch off of control keyword
-    Serial.print("argv[0] : ");
-    Serial.println(argv[0]);
     if (argc == 0) {
     } else if (strcmp(argv[0], NATS_CTRL_MSG) == 0) {
       // sanity check
@@ -359,30 +330,24 @@ private:
 
       // get subscription id
       int sid = atoi(argv[2]);
-      Serial.println(sid);
       // make sure sub for sid is not null
       if (subs[sid] == NULL) {
         free(buf);
         return;
       };
-      Serial.print("sid : ");
-      Serial.println(sid);
+
       // receive payload
       int payload_size = atoi((argc == 5) ? argv[4] : argv[3]) + 1;
-      Serial.print("payload_size : ");
-      Serial.println(payload_size);
-      //char *payload_buf = client_readline(payload_size);
-      char *payload_buf;
 
+      char *payload_buf;
       // FIXME: We really don't want to block here... but I don't see a quick workaround at the moment.
-      while((payload_buf = client->getline()) != NULL) {
+      while ((payload_buf = client->getline()) != NULL) {
         // Block untill message is RX'd
       }
-      //Serial.printf("payload_buf : %s\n",payload_buf);
 
       // put data into event struct
-      msg e = {argv[1], sid, (argc == 5) ? argv[3] : "", payload_buf,
-               payload_size};
+      msg e = { argv[1], sid, (argc == 5) ? argv[3] : "", payload_buf,
+                payload_size };
 
       // call callback
       subs[sid]->call(e);
@@ -396,20 +361,17 @@ private:
         on_error();
       disconnect();
     } else if (strcmp(argv[0], NATS_CTRL_PING) == 0) {
-      send(NATS_CTRL_PONG);
+      if (!connected) {
+        connected = true;
+        if (on_connect != NULL) {
+          on_connect();
+        }
+      }
+      send(NATS_CTRL_PONG "\r\n");
     } else if (strcmp(argv[0], NATS_CTRL_PONG) == 0) {
       outstanding_pings--;
     } else if (strcmp(argv[0], NATS_CTRL_INFO) == 0) {
-      Serial.print("in NATS_CTRL_INFO check\n");
-      Serial.println("calling send_connect");
-      delay(500);
       send_connect();
-      connected = true;
-      if (on_connect != NULL)
-        {
-        delay(500);
-        on_connect();
-        }
     }
 
     free(buf);
@@ -417,18 +379,17 @@ private:
 
   void ping() {
     if (outstanding_pings > max_outstanding_pings) {
+      DEBUG_PRINT("[WARN] nats went away?");
       client->stop();
       return;
     }
     outstanding_pings++;
-    send(NATS_CTRL_PING);
+    send(NATS_CTRL_PING "\r\n");
   }
 
   char *generate_inbox_subject() {
-    Serial.println();
-    Serial.println("in nats.generate_inbox_subject");
     size_t size =
-        (sizeof(NATS_INBOX_PREFIX) + NATS_INBOX_ID_LENGTH) * sizeof(char);
+      (sizeof(NATS_INBOX_PREFIX) + NATS_INBOX_ID_LENGTH) * sizeof(char);
     char *buf = (char *)malloc(size);
     strcpy(buf, NATS_INBOX_PREFIX);
     int i;
@@ -448,10 +409,6 @@ public:
       return true;
     }
     reconnect_attempts++;
-    Serial.println();
-    Serial.println("in NATS connect");
-    Serial.println(reconnect_attempts);
-    Serial.println();
     return false;
   }
 
@@ -471,13 +428,13 @@ public:
       return;
     if (!connected)
       return;
-    
-			send_fmt("PUB %s %s %lu",
-					subject,
-					(replyto == NULL)? "" : replyto,
-					(unsigned long)strlen(msg));
-    Serial.printf("msg=%s\n",(msg == NULL) ? "" : msg);
+
+    send_fmt("PUB %s %s %lu\r\n",
+             subject,
+             (replyto == NULL) ? "" : replyto,
+             (unsigned long)strlen(msg));
     send((msg == NULL) ? "" : msg);
+    send("\r\n");
   }
   void publish(const char *subject, const bool msg) {
     publish(subject, (msg) ? "true" : "false");
@@ -506,14 +463,14 @@ public:
       subs[sid] = sub;
     }
 
-    send_fmt("SUB %s %s %d", subject, (queue == NULL) ? "" : queue, sid);
+    send_fmt("SUB %s %s %d\r\n", subject, (queue == NULL) ? "" : queue, sid);
     return sid;
   }
 
   void unsubscribe(const int sid) {
     if (!connected)
       return;
-    send_fmt("UNSUB %d", sid);
+    send_fmt("UNSUB %d\r\n", sid);
     free(subs[sid]);
     subs[sid] = NULL;
     free_sids.push(sid);
@@ -521,8 +478,6 @@ public:
 
   int request(const char *subject, const char *msg, sub_cb cb,
               const int max_wanted = 1) {
-    Serial.println();
-    Serial.println("in nats.request");
     if (subject == NULL || subject[0] == 0)
       return -1;
     if (!connected)
@@ -536,17 +491,19 @@ public:
 
   void process() {
     if (client->connected()) {
-      //Serial.println();
-      //Serial.println("in NATS client->connected");
-      //Serial.println();
-      if (client->available())
+      if (client->available()) {
         recv();
-      if (ping_timer.process())
+      }
+
+     if (ping_timer.process()) {
+      if(connected) {
         ping();
+      }
+     }
     } else {
       disconnect();
-      if (max_reconnect_attempts == -1 ||
-          reconnect_attempts < max_reconnect_attempts) {
+
+      if (max_reconnect_attempts == -1 || reconnect_attempts < max_reconnect_attempts) {
         if (reconnect_timer.process())
           connect();
       }

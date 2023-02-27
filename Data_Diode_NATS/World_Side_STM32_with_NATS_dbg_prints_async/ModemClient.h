@@ -8,6 +8,7 @@
 #include <stdlib.h>
 
 #define MODEM_BAUD_RATE 115200
+#define MODEM_MTU 1500
 
 // Note: Measuring time is hard when the clock can overflow. Instead, compute
 // and compare durations
@@ -15,12 +16,15 @@
 #define TIME_HAS_BEEN(x) millis() - timeMark > x
 #define TIME_MARK() timeMark = millis();
 
-#define CHANGE_STATE(x)                                                        \
-  {            \
-    DEBUG_PRINT("Change State from %d ,to %d\n",state,x);                                         \
-    state = x;                                                                 \
-    TIME_MARK();                                                               \
-  }
+#define CHANGE_STATE(x) {                   \
+    /*DEBUG_PRINT("CS %d -> %d (%d)\n",state,x, __LINE__); */  \
+    state = x;                              \
+    TIME_MARK();                            \
+}
+
+#define SET_ERROR(error) {                        \
+    strncpy(lastError, error, 500);               \
+}
 
 enum State {
   M_ERROR,
@@ -44,7 +48,7 @@ public:
   // constructor
   ModemClient(HardwareSerial modem, uint8_t pwr);
 
-  char* lastError;
+  char lastError[500];
   int connect(const char *host, uint16_t port);
   void stop();
   size_t write(const uint8_t *buf, size_t size);
@@ -67,13 +71,15 @@ protected:
   struct MemBuffer tx;
   struct MemBuffer rx;
   struct MemBuffer tcp_rx;
-  CircularBuffer<struct MemBuffer *, 10> tcp_tx;
+  struct MemBuffer tcp_tx;
   size_t tcp_bytes_to_recv = 0;
+  size_t tcp_bytes_to_send = 0;
 
   uint8_t pwr;
   enum State state = M_ERROR;
   uint32_t timeMark;
-  uint8_t expected_errors = 0;
+  int expected_errors = 0;
+  int expected_ok =0;
 
   char ip[16]; // XXX.XXX.XXX.XXX
   uint16_t port;
@@ -91,7 +97,7 @@ protected:
   void modem_send();
   void modem_off();
   void modem_on();
-  void modem_stop();
+  void modem_close();
 };
 
 #endif

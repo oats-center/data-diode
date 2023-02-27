@@ -40,7 +40,7 @@ uint8_t *membuf_add(struct MemBuffer *buf, size_t nlen);
 // Prepare the buffer for data and then add the string
 void membuf_str(struct MemBuffer *buf, const char *str);
 // Prepare the buffer and copy said data
-void membuf_cpy(struct MemBuffer *buf, const void *data, size_t nlen);
+void membuf_push(struct MemBuffer *buf, const void *data, size_t nlen);
 // Drop the first len bytes from the buffer
 size_t membuf_shift(struct MemBuffer *buf, size_t len);
 // Delete everything from buffer

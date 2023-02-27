@@ -1,7 +1,7 @@
 #include "ModemClient.h"
 
 ModemClient::ModemClient(HardwareSerial modem, uint8_t pwr)
-    : modem(modem), pwr(pwr) {
+  : modem(modem), pwr(pwr) {
 
   // Buffer for modem AT TX
   membuf_init(&tx);
@@ -12,12 +12,13 @@ ModemClient::ModemClient(HardwareSerial modem, uint8_t pwr)
   // Buffer connection RX data
   membuf_init(&tcp_rx);
 
+  // Buffer connection TX data
+  membuf_init(&tcp_tx);
 }
 
-void ModemClient::init()
-{
-    modem.begin(MODEM_BAUD_RATE);
-    pinMode(pwr, OUTPUT);
+void ModemClient::init() {
+  modem.begin(MODEM_BAUD_RATE);
+  pinMode(pwr, OUTPUT);
 }
 
 void ModemClient::process() {
@@ -38,6 +39,8 @@ int ModemClient::connect(const char *host, const uint16_t prt) {
   membuf_str(&tx, host);
   membuf_str(&tx, "\"\r\n");
 
+  expected_ok++;
+
   CHANGE_STATE(M_DNS_LOOKUP);
   return 0;
 }
@@ -48,7 +51,7 @@ void ModemClient::stop() {
   }
 
   // TODO: stop even if not >= M_CONNECTED?
-  modem_stop();
+  modem_close();
 }
 
 void ModemClient::reset() {
@@ -60,31 +63,49 @@ void ModemClient::reset() {
   modem_reset();
 }
 
-int ModemClient::available() { 
-  if(tcp_bytes_to_recv){
-   return 0;
-  }
-  else{
-    return membuf_size(&tcp_rx);
-  }
+int ModemClient::available() {
+  return membuf_size(&tcp_rx);
 }
 
-int ModemClient::read() { return membuf_first(&tcp_rx); }
-char * ModemClient::getline() { 
-  DEBUG_PRINT("SIZE OF TCP RX=%d\n",tcp_rx.pos);
-  return membuf_getline(&tcp_rx); }
+int ModemClient::read() {
+  return membuf_first(&tcp_rx);
+}
 
-bool ModemClient::connected() { return state >= M_CONNECTED; }
+char *ModemClient::getline() {
+  return membuf_getline(&tcp_rx);
+}
 
-bool ModemClient::initialized() { return state >= M_READY; }
+bool ModemClient::connected() {
+  return state >= M_CONNECTED;
+}
 
-bool ModemClient::isError() { return state == M_ERROR; }
+bool ModemClient::initialized() {
+  return state >= M_READY;
+}
 
-const char *ModemClient::get_error() { return lastError; }
+bool ModemClient::isError() {
+  return state == M_ERROR;
+}
 
-void ModemClient::modem_stop() {
+size_t ModemClient::write(const uint8_t *buf, size_t size) {
+  if (state < M_CONNECTED) {
+    DEBUG_PRINT("WARN : write called when not connected\n");
+    return -1;
+  }
+
+  membuf_push(&tcp_tx, buf, size);
+
+  return size;
+}
+
+const char *ModemClient::get_error() {
+  return lastError;
+}
+
+void ModemClient::modem_close() {
   // Open connection
-  membuf_str(&tx, "AT+CIPCLOSE=1");
+  membuf_str(&tx, "AT+CIPCLOSE=1\r\n");
+  expected_ok++;
 
   CHANGE_STATE(M_STOPPING);
 }
@@ -95,7 +116,6 @@ void ModemClient::modem_off() {
 }
 
 void ModemClient::modem_on() {
-  DEBUG_PRINT("In modem_on");
   digitalWrite(pwr, HIGH);
   CHANGE_STATE(M_POWER_ON);
 }
@@ -110,155 +130,150 @@ void ModemClient::modem_reset() {
   membuf_clear(&rx);
   membuf_clear(&tx);
   membuf_clear(&tcp_rx);
-  tcp_tx.clear();
-  
+  membuf_clear(&tcp_tx);
+
+  expected_errors = 0;
+  expected_ok = 0;
+
   CHANGE_STATE(M_RESET);
 }
 
 void ModemClient::modem_send_at() {
-  membuf_str(&tx, "AT\r\n");
-  DEBUG_PRINT("modem_send_at lenofbuf=%d\n", membuf_size(&tx));
+  membuf_str(&tx, "ATE0\r\n");
+  expected_ok++;
+
   CHANGE_STATE(M_POLL);
 }
 
 void ModemClient::modem_open_network() {
   membuf_str(&tx, "AT+NETOPEN\r\n");
+  expected_ok++;
+
   CHANGE_STATE(M_NET_OPEN);
 }
 
 void ModemClient::modem_connect() {
   // Open connection
-  snprintf((char *)&_at, sizeof(_at), "AT+CIPOPEN=1,\"TCP\",\"%s\",%d\r\n", ip, port);
-  DEBUG_PRINT("%s",(char *)&_at);
+  snprintf(_at, sizeof(_at), "AT+CIPOPEN=1,\"TCP\",\"%s\",%d\r\n", ip, port);
   membuf_str(&tx, _at);
+  expected_ok++;
 
   CHANGE_STATE(M_CONNECTING);
 }
 
-void ModemClient::modem_send() {
-  if (!tcp_tx.isEmpty()) {
-    DEBUG_PRINT("in modem_send");
-    snprintf((char *)&_at, sizeof(_at), "AT+CIPSEND=1,%u",
-             membuf_size(tcp_tx.first()));
-    DEBUG_PRINT("mdm send AT cmd = %s\n",&_at);
-    membuf_str(&tx, _at);
-
-    CHANGE_STATE(M_WAITING_TO_SEND);
-  }
-}
 
 void ModemClient::_tick() {
-  switch (state) {
-  case M_ERROR:
-    break;
+  if (state == M_ERROR || state == M_POWER_OFF || state == M_READY) {
+    // In error, do nothing.
 
-  case M_POWER_OFF:
-    // Do nothing. Forever.
-    break;
-
-  case M_RESET:
-    // TODO: How long to keep off durring reset?
+  } else if (state == M_RESET) {
+    // TODO: How long to keep the modem power signal "low" to cause a physical reset?
     if (TIME_HAS_BEEN(1000)) {
       modem_on();
     }
-    break;
 
-  // Hard power on modem
-  case M_POWER_ON:
-    // TODO: How long to wait before trying "AT" poll?
+    // Hard power on modem
+  } else if (state == M_POWER_ON) {
     if (TIME_HAS_BEEN(1000)) {
       modem_send_at();
     }
-    break;
 
-  // Waiting for OK response. Hard restart after 5 second
-  case M_POLL:
-    // TODO: How long to wait for AT?
+    // Waiting for OK response. Hard restart after 5 second
+  } else if (state == M_POLL) {
     if (TIME_HAS_BEEN(1000)) {
-      DEBUG_PRINT("[ERROR] Cell modem did not respond.\n");
-      // TODO: Update lastError
-      CHANGE_STATE(M_ERROR);
-    }
-    break;
-
-  // Waiting for network open response
-  case M_NET_OPEN:
-    // TODO: How long to wait ?
-    if (TIME_HAS_BEEN(5000)) {
-      DEBUG_PRINT("[ERROR] Cell modem did not respond.\n");
-      // TODO: Update lastError
-      CHANGE_STATE(M_ERROR);
-    }
-    break;
-
-  case M_READY:
-    // Nothing to do
-    break;
-
-  case M_DNS_LOOKUP:
-    // TODO: How long to wait ?
-    if (TIME_HAS_BEEN(2000)) {
-      DEBUG_PRINT("[ERROR] Cell modem did not respond.\n");
-      // TODO: Update lastError
-      CHANGE_STATE(M_ERROR);
-    }
-    break;
-
-  case M_CONNECTING:
-    // TODO: How long to wait ?
-    if (TIME_HAS_BEEN(3000)) {
-      DEBUG_PRINT("[ERROR] Cell modem did not respond.\n");
-      // TODO: Update lastError
-      CHANGE_STATE(M_ERROR);
-    }
-    break;
-
-  case M_STOPPING:
-    // TODO: How long to wait?
-    if (TIME_HAS_BEEN(5000)) {
-      DEBUG_PRINT("[ERROR] Cell modem disconnect timeout.\n");
-      // TODO: Update lastError
-      CHANGE_STATE(M_ERROR);
-    }
-    break;
-
-  case M_CONNECTED:
-    modem_send();
-    break;
-
-  case M_WAITING_TO_SEND:
-    if (TIME_HAS_BEEN(100)) {
-      DEBUG_PRINT("[ERROR] Cell modem did not accept TCP RX data.\n");
-      // TODO: Update lastError
+      SET_ERROR("POLL timeout.");
+      DEBUG_PRINT("[ERROR] POLL timeout.\n");
       CHANGE_STATE(M_ERROR);
     }
 
-  case M_SENDING:
-    struct MemBuffer *buf = tcp_tx.first();
-    DEBUG_PRINT("in M_SENDING");
+    // Waiting for network open response
+  } else if (state == M_NET_OPEN) {
+    if (TIME_HAS_BEEN(10000)) {
+      SET_ERROR("NET_OPEN timeout.");
+      DEBUG_PRINT("[ERROR] NET_OPEN timeout.\n");
+      CHANGE_STATE(M_ERROR);
+    }
+
+  } else if (state == M_DNS_LOOKUP) {
+
+    if (TIME_HAS_BEEN(10000)) {
+      SET_ERROR("DNS LOOKUP timeout");
+      DEBUG_PRINT("[ERROR] DNS LOOKUP timeout.\n");
+      CHANGE_STATE(M_ERROR);
+    }
+
+  } else if (state == M_CONNECTING) {
+    if (TIME_HAS_BEEN(10000)) {
+      SET_ERROR("CONNECTING timeout.");
+      DEBUG_PRINT("[ERROR] CONNECTING timeout.\n");
+      CHANGE_STATE(M_ERROR);
+    }
+
+  } else if (state == M_STOPPING) {
+    if (TIME_HAS_BEEN(10000)) {
+      SET_ERROR("STOPPING timeout.");
+      DEBUG_PRINT("[ERROR] STOPPING timeout.\n");
+      CHANGE_STATE(M_ERROR);
+    }
+
+  } else if (state == M_CONNECTED) {
+    size_t size = membuf_size(&tcp_tx);
+    if (size) {
+      // Chunk at the MTU size
+      if (size > MODEM_MTU) {
+        size = MODEM_MTU;
+      }
+      snprintf(_at, sizeof(_at), "AT+CIPSEND=1,%u\r\n", size);
+      membuf_str(&tx, _at);
+      expected_ok++;
+      tcp_bytes_to_send = size;
+
+      CHANGE_STATE(M_WAITING_TO_SEND);
+    }
+
+  } else if (state == M_WAITING_TO_SEND) {
+    if (TIME_HAS_BEEN(1000)) {
+      SET_ERROR("WAITING_TO_SEND timeout");
+      DEBUG_PRINT("[ERROR] WAITING_TO_SEND timeout.\n");
+      CHANGE_STATE(M_ERROR);
+    }
+
+  } else if (state == M_SENDING) {
+
+    if (!tcp_bytes_to_send) {
+      DEBUG_PRINT("[WARN] Got to M_SENDING with no bytes to send?");
+      CHANGE_STATE(M_CONNECTED);
+      return;
+    }
+
     // Send queued AT command TX
     size_t allowed = modem.availableForWrite();
-    size_t size = membuf_size(buf);
 
-    if (allowed && size) {
-      size_t len = size > allowed ? allowed : size;
-      modem.write(membuf_head(buf), len);
-      Serial.write(membuf_head(buf), len);
+    if (allowed) {
+      size_t len = tcp_bytes_to_send > allowed ? allowed : tcp_bytes_to_send;
+      modem.write(membuf_head(&tcp_tx), len);
+      DEBUG_PRINT("TCP TX (%d): ", tcp_bytes_to_send);
+      Serial.write(membuf_head(&tcp_tx), len);
+      DEBUG_PRINT("\n");
+
       // Clean up if done sending
-      if (membuf_shift(buf, len) == 0) {
-        membuf_drop(tcp_tx.shift());
+      membuf_shift(&tcp_tx, len);
+      tcp_bytes_to_send -= len;
+
+      if (tcp_bytes_to_send == 0) {
+        //modem.write("\r\n");
+        //expected_ok++;
+
         CHANGE_STATE(M_CONNECTED);
       }
     }
-
-    break;
   }
 }
+
 
 // Private Methods
 // Note: This function must be non-blocking
 void ModemClient::_processSerial() {
-
   if (state == M_ERROR) {
     return;
   }
@@ -266,262 +281,269 @@ void ModemClient::_processSerial() {
   // Receive any modem RX
   size_t available = modem.available();
 
-  // Copy UART bytes into buffer
+  // Handle RX work
   if (available) {
-    DEBUG_PRINT("available=%d\n",available);
-     modem.readBytes(membuf_add(&rx, available), available);
+    modem.readBytes(membuf_add(&rx, available), available);
   }
 
-    // We are receiving a packet, so don't process as typical AT commands
-  // NOTE: The docs suggest there is NOT <CR><LF> at the end of TCP RX data
-  
-
-  if(tcp_bytes_to_recv)
-  {
-    if(tcp_bytes_to_recv <= membuf_size(&rx))
-    {
-      DEBUG_PRINT("rx data : %s\n",rx.data);
-      DEBUG_PRINT("rx.data[rx.pos-1] = %d]\n",rx.data[membuf_size(&rx)-1]);
-      DEBUG_PRINT("rx.data[rx.pos-2] = %d]\n",rx.data[membuf_size(&rx)-2]);
-      DEBUG_PRINT("rx.data[rx.pos-3] = %d]\n",rx.data[membuf_size(&rx)-3]);
-      DEBUG_PRINT("rx.data[rx.pos-4] = %d]\n",rx.data[membuf_size(&rx)-4]);
-    }
-  }
-  if (tcp_bytes_to_recv  && (tcp_bytes_to_recv <= membuf_size(&rx))) {
-    DEBUG_PRINT("tcp_bytes_to_recv = %d\n",tcp_bytes_to_recv);
-    //size_t size = membuf_size(&rx);
-    //DEBUG_PRINT("size = %d\n",size);
-    //size_t len = tcp_bytes_to_recv > size ? size : tcp_bytes_to_recv;
-
-    // Copy from typical AT RX buffer to TCP RX buffer
-    membuf_take(membuf_add(&tcp_rx, tcp_bytes_to_recv), &rx, tcp_bytes_to_recv); //len+1 to accomodate one extra newline that mdem IPD command misses 
-    //tcp_bytes_to_recv -= len;
-        //DEBUG_PRINT("\n");
+  // Take bytes for TCP if needing too
+  if (tcp_bytes_to_recv && tcp_bytes_to_recv <= membuf_size(&rx)) {
+    membuf_take(membuf_add(&tcp_rx, tcp_bytes_to_recv), &rx, tcp_bytes_to_recv);
+    DEBUG_PRINT("TCP RX (%d): %s\n", tcp_bytes_to_recv, membuf_head(&tcp_rx));
     tcp_bytes_to_recv = 0;
   }
 
-  // If we are not actively receiving a packet, process UART as AT commands
+  // If not RX'ing TCP data, then check for pending AT to write
+  // FIXME: Can we send AT commands even when TCP data is being sent to us?
   if (!tcp_bytes_to_recv) {
-    char *line;
-
     // Send queued AT command TX
     size_t allowed = modem.availableForWrite();
     size_t size = membuf_size(&tx);
 
-    if (allowed && size) {
-      //DEBUG_PRINT("allowed=%d size=%d\n",allowed,size);
+    // Not in the middle of a prior command, have room to write, and have something to write
+    // TODO: check for == 1 here is weird, but is right. We queue up a command, add 1 to expected_ok, and THEN send. So at this point, expecting 1 ok means nothing is going on and one is ready to go.
+    if (expected_ok == 1 && expected_errors == 0 && allowed && size) {
       size_t len = size > allowed ? allowed : size;
-      //Serial.write(membuf_head(&tx), len);
       modem.write(membuf_head(&tx), len);
+      DEBUG_PRINT("cell (ok: %d, err: %d): %s\n", expected_ok, expected_errors, membuf_head(&tx));
+
       membuf_shift(&tx, len);
     }
+  }
 
-    // Loop over all available lines and drive state machine
+  // Modem sends `>` rather than `>\r\n` when waiting for TCP data, so have to match it *before* the below getline
+  if (state == M_WAITING_TO_SEND && strncmp((const char *)membuf_head(&rx), ">", 1) == 0) {
+    // Consume the `>`
+    membuf_first(&rx);
+    CHANGE_STATE(M_SENDING);
+  }
 
-    while ((line = membuf_getline(&rx)) != NULL) {
-      DEBUG_PRINT("FROM rx line read\n");
-      DEBUG_PRINT("line=%s\n",line);
-      if (strncmp(line, "OK",2) == 0) {
-        if (state == M_POLL) {
-          modem_open_network();
+  // Process complete AT rx lines (but only if we are not rx'ing TCP data)
+  char *line;
+  while (tcp_bytes_to_recv == 0 && (line = membuf_getline(&rx)) != NULL) {
 
-          continue;
-        }
-
-      } else if (strncmp(line, "+NETOPEN",8) == 0) {
-        int ret;
-
-        if (sscanf(line, "+NETOPEN: %d", &ret) != 1) {
-          DEBUG_PRINT("[ERROR] Invalid NETOPEN response: %s\n", line);
-          CHANGE_STATE(M_ERROR);
-          break;
-        }
-
-        if (ret != 0) {
-          DEBUG_PRINT("[ERROR] NETOPEN error: %s\n", line);
-          CHANGE_STATE(M_ERROR);
-          break;
-        }
-
-        CHANGE_STATE(M_READY);
-
-      } else if (strncmp(line, "+CDNSGIP",8) == 0) {
-        int ret;
-        if (sscanf(line, "+CDNSGIP: %d,%*s", &ret) == 2) {
-          DEBUG_PRINT("[ERROR] Invalid CDNSGIP response: %s\n", line);
-          CHANGE_STATE(M_ERROR);
-          break;
-        }
-
-        if (ret != 1) {
-          DEBUG_PRINT("[ERROR] DNS lookup error: %s\n", line);
-          CHANGE_STATE(M_ERROR);
-          break;
-        }
-
-        strtok(line, "\"");
-        strtok(NULL, "\"");
-        strtok(NULL, "\"");
-        char * s = strtok(NULL, "\"");
-
-        if(s != NULL) {
-          strcpy(ip, s);
-        } else {
-        // The normal error code/change_state(error) code 
-        DEBUG_PRINT("[ERROR] DNS lookup error: %s\n", line);
-        CHANGE_STATE(M_ERROR);
-        break;
-        }
-        // start connection
-        modem_connect();
-
-      } else if (strncmp(line, "+CIPOPEN",8) == 0) {
-        int ret;
-
-        if (sscanf(line, "+CIPOPEN: 1,%d", &ret) != 1) {
-          DEBUG_PRINT("[ERROR] Invalid CIPOPEN response: %s\n", line);
-          CHANGE_STATE(M_ERROR);
-          break;
-        }
-
-        if (ret != 0) {
-          DEBUG_PRINT("[ERROR] Connection error: %s\n", line);
-          CHANGE_STATE(M_ERROR);
-          break;
-        }
-
-        CHANGE_STATE(M_CONNECTED);
-
-      } else if (strncmp(">", line,1) == 0) {
-        DEBUG_PRINT("received >");
-        if (state == M_WAITING_TO_SEND) {
-          CHANGE_STATE(M_SENDING);
-        } else {
-          DEBUG_PRINT("[ERROR] Modem requested data without being in waiting "
-                      "to send state %s\n",
-                      line);
-          CHANGE_STATE(M_ERROR);
-          break;
-        }
-
-      } else if (strncmp(line, "+CIPSEND",8) == 0) {
-        size_t rSend, cSend;
-
-        if (sscanf(line, "+CIPSEND: 1,%zd,%zd", &rSend, &cSend) != 2) {
-          DEBUG_PRINT("[ERROR] Invalid CIPSEND response: %s\n", line);
-          CHANGE_STATE(M_ERROR);
-          break;
-        }
-
-        if (rSend != cSend) {
-          DEBUG_PRINT("[ERROR] Could only send parital packet: %s\n", line);
-          CHANGE_STATE(M_ERROR);
-          break;
-        }
-
-        CHANGE_STATE(M_CONNECTED);
-
-      } else if (strncmp(line, "+CIPCLOSE",9) == 0) {
-        int ret;
-
-        if (sscanf(line, "+CIPCLOSE: 1,%d", &ret) != 1) {
-          DEBUG_PRINT("[ERROR] Invalid CIPCLOSE response: %s\n", line);
-          CHANGE_STATE(M_ERROR);
-          break;
-        }
-
-        if (ret != 0) {
-          DEBUG_PRINT("[ERROR] Connection close error: %s\n", line);
-          CHANGE_STATE(M_ERROR);
-          break;
-        }
-
-        CHANGE_STATE(M_READY);
-
-      } else if (strncmp(line, "+IPD",4) == 0) {
-        size_t length;
-        if (sscanf(line, "+IPD%zd", &length) != 1) {
-          DEBUG_PRINT("[ERROR] Invalid CDNSGIP response: %s\n", line);
-          CHANGE_STATE(M_ERROR);
-          break;
-        }
-        DEBUG_PRINT("%d",length);
-        tcp_bytes_to_recv = length;
-        break;
-
-      } else if (strncmp(line, "ERROR",5) == 0) {
-        if(expected_errors) {
-          expected_errors--;
-        } else {
-          DEBUG_PRINT("[ERROR] Unknown ERROR response");
-          CHANGE_STATE(M_ERROR);
-          break;
-        }
-
-      } else if (strncmp(line, "+CIPERROR",9) == 0) {
-        DEBUG_PRINT("[ERROR] CIPERROR: %s", line);
-        CHANGE_STATE(M_ERROR);
-        break;
-      } else if (strcmp(line, "+IP ERROR: Network is already opened") == 0) {
-        expected_errors++;
-        CHANGE_STATE(M_READY);
-      
-      } 
-      else if(strncmp(line, "+IPCLOSE",8) == 0){
-          DEBUG_PRINT("+IPCLOSE : %s",line);
-          CHANGE_STATE(M_READY);
-
-      }else if (strncmp(line, "+IP ERROR",9) == 0) {
-        DEBUG_PRINT("[ERROR] IP Error: %s", line);
-        CHANGE_STATE(M_ERROR);
-      } else if (strncmp(line, "RECV FROM:",10) == 0) {
-        // Ignore RECV FROM because we only have one tcp_rx buf.
-
-      } else if (strcmp(line, "") == 0) {
-        // Ignore blank lines
-
-      } else if (
-        strncmp(line, "AT", 2) == 0 ||
-        strncmp(line, "AT+NETOPEN", 10) == 0 ||
-        strncmp(line, "AT+CIPOPEN", 10) == 0 ||
-        strncmp(line, "AT+CIPSEND", 10) == 0 ||
-        strncmp(line, "AT+CIPCLOSE", 11) == 0) {
-        // Ignore local echo 
-      } else {
-        DEBUG_PRINT("[ERROR] Unknown message: %s", line);
-        CHANGE_STATE(M_ERROR);
-        break;
-      }
-
-      if (state == M_ERROR) {
-        if (lastError != NULL) {
-          free(lastError);
-          lastError = NULL;
-        }
-
-        lastError = line;
-        break;
-      } else {
-        free(line);
-      }
+    if (strcmp(line, "") != 0) {
+      DEBUG_PRINT("line (ok: %d, err: %d)= %s\n", expected_ok, expected_errors, line);
     }
+
+    if (strncmp(line, "OK", 2) == 0) {
+      if (expected_ok <= 0) {
+        DEBUG_PRINT("[ERROR] Too many `OK` returned from modem?\n");
+        SET_ERROR(line);
+        CHANGE_STATE(M_ERROR);
+        break;
+      }
+
+      expected_ok--;
+
+      if (state == M_POLL) {
+        modem_open_network();
+      }
+
+    } else if (strncmp(line, "+NETOPEN", 8) == 0) {
+      int ret;
+
+      if (sscanf(line, "+NETOPEN: %d", &ret) != 1) {
+        DEBUG_PRINT("[ERROR] Invalid NETOPEN response: %s\n", line);
+        SET_ERROR(line);
+        CHANGE_STATE(M_ERROR);
+        break;
+      }
+
+      if (ret != 0) {
+        DEBUG_PRINT("[ERROR] NETOPEN error: %s\n", line);
+        SET_ERROR(line);
+        CHANGE_STATE(M_ERROR);
+        break;
+      }
+
+      CHANGE_STATE(M_READY);
+
+    } else if (strncmp(line, "+CDNSGIP", 8) == 0) {
+      int ret;
+      if (sscanf(line, "+CDNSGIP: %d,%*s", &ret) == 2) {
+        DEBUG_PRINT("[ERROR] Invalid CDNSGIP response: %s\n", line);
+        SET_ERROR(line);
+        CHANGE_STATE(M_ERROR);
+        break;
+      }
+
+      if (ret != 1) {
+        DEBUG_PRINT("[ERROR] DNS lookup error: %s\n", line);
+        SET_ERROR(line);
+        CHANGE_STATE(M_ERROR);
+        break;
+      }
+
+      strtok(line, "\"");
+      strtok(NULL, "\"");
+      strtok(NULL, "\"");
+      char *s = strtok(NULL, "\"");
+
+      if (s != NULL) {
+        strcpy(ip, s);
+      } else {
+        // The normal error code/change_state(error) code
+        DEBUG_PRINT("[ERROR] DNS lookup error: %s\n", line);
+        SET_ERROR(line);
+        CHANGE_STATE(M_ERROR);
+        break;
+      }
+      // start connection
+      modem_connect();
+
+    } else if (strncmp(line, "+CIPOPEN", 8) == 0) {
+      int ret;
+
+      if (sscanf(line, "+CIPOPEN: 1,%d", &ret) != 1) {
+        DEBUG_PRINT("[ERROR] Invalid CIPOPEN response: %s\n", line);
+        SET_ERROR(line);
+        CHANGE_STATE(M_ERROR);
+        break;
+      }
+
+      // Already have an open connection
+      if (ret == 4) {
+        DEBUG_PRINT("[WARN] Existing connection. Closing and reconnecting.\n");
+        expected_errors++;
+        expected_ok--;
+        modem_close();
+        break;
+      }
+
+      if (ret != 0) {
+        DEBUG_PRINT("[ERROR] Connection error: %s\n", line);
+        SET_ERROR(line);
+        CHANGE_STATE(M_ERROR);
+        break;
+      }
+
+      CHANGE_STATE(M_CONNECTED);
+
+    } else if (strncmp(line, "+CIPSEND", 8) == 0) {
+      int rSend, cSend;
+
+      if (sscanf(line, "+CIPSEND: 1,%d,%d", &rSend, &cSend) != 2) {
+        DEBUG_PRINT("[ERROR] Invalid CIPSEND response: %s\n", line);
+        SET_ERROR(line);
+        CHANGE_STATE(M_ERROR);
+        break;
+      }
+
+      if (rSend != cSend) {
+        DEBUG_PRINT("[ERROR] Could only send parital packet: %s\n", line);
+        SET_ERROR(line);
+        CHANGE_STATE(M_ERROR);
+        break;
+      }
+
+      CHANGE_STATE(M_CONNECTED);
+
+    } else if (strncmp(line, "+CIPCLOSE", 9) == 0) {
+      int ret;
+
+      if (sscanf(line, "+CIPCLOSE: 1,%d", &ret) != 1) {
+        DEBUG_PRINT("[ERROR] Invalid CIPCLOSE response: %s\n", line);
+        SET_ERROR(line);
+        CHANGE_STATE(M_ERROR);
+        break;
+      }
+
+      if (ret != 0) {
+        DEBUG_PRINT("[ERROR] Connection close error: %s\n", line);
+        SET_ERROR(line);
+        CHANGE_STATE(M_ERROR);
+        break;
+      }
+
+      CHANGE_STATE(M_READY);
+
+    } else if (strncmp(line, "+IPD", 4) == 0) {
+      size_t length;
+      if (sscanf(line, "+IPD%zd", &length) != 1) {
+        DEBUG_PRINT("[ERROR] Invalid CDNSGIP response: %s\n", line);
+        SET_ERROR(line);
+        CHANGE_STATE(M_ERROR);
+        break;
+      }
+
+      tcp_bytes_to_recv = length;
+
+      // Critical: The next bytes are NOT AT commands
+      break;
+
+    } else if (strncmp(line, "ERROR", 5) == 0) {
+      if (expected_errors) {
+        expected_errors--;
+      } else {
+        DEBUG_PRINT("[ERROR] Unknown ERROR response\n");
+        SET_ERROR(line);
+        CHANGE_STATE(M_ERROR);
+      }
+
+    } else if (strncmp(line, "+CIPERROR", 9) == 0) {
+      int ret;
+
+      if (sscanf(line, "+CIPERROR: %d", &ret) != 1) {
+        DEBUG_PRINT("[ERROR] Invalid CIPERROR response: %s\n", line);
+        SET_ERROR(line);
+        CHANGE_STATE(M_ERROR);
+        break;
+      }
+
+      if (ret == 4) {
+        expected_errors++;
+        expected_ok--;
+        CHANGE_STATE(M_READY);
+      } else {
+        DEBUG_PRINT("[ERROR] CIPERROR: %s\n", line);
+        SET_ERROR(line);
+        CHANGE_STATE(M_ERROR);
+      }
+
+    } else if (strcmp(line, "+IP ERROR: Network is already opened") == 0) {
+      expected_errors++;
+      expected_ok--;
+      CHANGE_STATE(M_READY);
+
+    } else if (strncmp(line, "+IPCLOSE", 8) == 0) {
+      int ret;
+      if (sscanf(line, "+IPCLOSE: 1,%d", &ret) != 1) {
+        DEBUG_PRINT("[ERROR] Invalid IPCLOSE message: %s\n", line);
+        SET_ERROR(line);
+        CHANGE_STATE(M_ERROR);
+        break;
+      }
+
+      // Socket closed due to something other than it being requested
+      if (ret != 0) {
+        // Account for the OK expected with command that prompted the closure notice.
+        expected_ok--;
+      }
+
+      CHANGE_STATE(M_READY);
+
+    } else if (strncmp(line, "+IP ERROR", 9) == 0) {
+      DEBUG_PRINT("[ERROR] IP Error\n");
+      SET_ERROR(line);
+      CHANGE_STATE(M_ERROR);
+
+    } else if (strncmp(line, "RECV FROM:", 10) == 0) {
+      // Ignore RECV FROM because we only have one tcp_rx buf.
+
+    } else if (strcmp(line, "") == 0) {
+      // Ignore blank lines
+
+    } else if (
+      strncmp(line, "RDY", 3) == 0 || strncmp(line, "+CPIN: READY", 12) == 0 || strncmp(line, "SMS DONE", 8) == 0 || strncmp(line, "PB DONE", 7) == 0 || strncmp(line, "ATE0", 4) == 0) {
+      // Ignore init messages
+
+    } else {
+      DEBUG_PRINT("[ERROR] Unknown message: %s\n", line);
+      SET_ERROR(line);
+      CHANGE_STATE(M_ERROR);
+    }
+
+    free(line);
   }
-}
-
-size_t ModemClient::write(const uint8_t *buf, size_t size) {
-  //delay(100);
-  //DEBUG_PRINT("buf=%s,size=%d state=%d",(char *)buf,size,state);
-
-  if (state != M_CONNECTED) {
-    DEBUG_PRINT("WARN : write called when not connected\n");
-    return -1;
-  }
-  //DEBUG_PRINT("in client write\n");
-  struct MemBuffer *b = (struct MemBuffer *)malloc(sizeof(struct MemBuffer));
-  membuf_init(b);
-  membuf_cpy(b, buf, size);
-
-  tcp_tx.push(b);
-  DEBUG_PRINT("pushed buf = %s",buf);
-  return size;
 }
