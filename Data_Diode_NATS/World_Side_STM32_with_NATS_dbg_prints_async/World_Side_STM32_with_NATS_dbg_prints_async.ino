@@ -81,7 +81,8 @@ void loop() {
 
   while (!natsPending.isEmpty()) {
     char *msg = natsPending.shift();
-    Serial.printf("New message. Length = %d data=%s\n", strlen(msg), msg);
+    //Serial.printf("New message. Length = %d data=%s\n", strlen(msg), msg);
+    Serial.printf("New message. Length = %d\n", strlen(msg), msg);
     nats.publish(pub_subject, msg);
     free(msg);
   }

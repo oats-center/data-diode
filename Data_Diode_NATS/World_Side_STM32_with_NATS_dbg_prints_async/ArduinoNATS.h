@@ -494,12 +494,13 @@ public:
       if (client->available()) {
         recv();
       }
-
+/*
      if (ping_timer.process()) {
       if(connected) {
         ping();
       }
      }
+*/
     } else {
       disconnect();
 

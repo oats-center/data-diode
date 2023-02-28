@@ -32,6 +32,7 @@ enum State {
   M_RESET,
   M_POWER_ON,
   M_POLL,
+  M_SET_APN,
   M_NET_OPEN,
   M_READY,
   M_DNS_LOOKUP,
@@ -92,6 +93,7 @@ protected:
 
   void modem_reset();
   void modem_send_at();
+  void modem_set_apn();
   void modem_open_network();
   void modem_connect();
   void modem_send();

@@ -145,6 +145,13 @@ void ModemClient::modem_send_at() {
   CHANGE_STATE(M_POLL);
 }
 
+void ModemClient::modem_set_apn() {
+  DEBUG_PRINT("inside modem_set_apn\n");
+  membuf_str(&tx, "AT+CGDCONT=1,\"IP\",\"super\"\r\n");
+  expected_ok++;
+  CHANGE_STATE(M_SET_APN);
+}
+
 void ModemClient::modem_open_network() {
   membuf_str(&tx, "AT+NETOPEN\r\n");
   expected_ok++;
@@ -168,7 +175,7 @@ void ModemClient::_tick() {
 
   } else if (state == M_RESET) {
     // TODO: How long to keep the modem power signal "low" to cause a physical reset?
-    if (TIME_HAS_BEEN(1000)) {
+    if (TIME_HAS_BEEN(500)) {
       modem_on();
     }
 
@@ -187,7 +194,14 @@ void ModemClient::_tick() {
     }
 
     // Waiting for network open response
-  } else if (state == M_NET_OPEN) {
+  } else if (state == M_SET_APN) {
+    if (TIME_HAS_BEEN(10000)) {
+      SET_ERROR("SET_APN timeout.");
+      DEBUG_PRINT("[ERROR] SET_APN timeout.\n");
+      CHANGE_STATE(M_ERROR);
+    }
+  }
+    else if (state == M_NET_OPEN) {
     if (TIME_HAS_BEEN(10000)) {
       SET_ERROR("NET_OPEN timeout.");
       DEBUG_PRINT("[ERROR] NET_OPEN timeout.\n");
@@ -337,6 +351,10 @@ void ModemClient::_processSerial() {
       expected_ok--;
 
       if (state == M_POLL) {
+        modem_set_apn();
+      }
+	  
+	   if (state == M_SET_APN) {
         modem_open_network();
       }
 
