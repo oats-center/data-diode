@@ -11,11 +11,11 @@
 #define UNIQUE_ID_SIZE 12
 #define SUBJECT_LENGTH 8 + 2*UNIQUE_ID_SIZE + 1 // "traffic." + ID(as hex) + \0
 
-HardwareSerial Modem(PE7, PE8);  //(Rx, Tx), UART7 below D0 and D1
-HardwareSerial Diode(PG9, PG14);
+HardwareSerial Diode(PE7, PE8);  //(Rx, Tx), UART7 below D0 and D1
+HardwareSerial Modem(PG9, PG14);
 ModemClient client(Modem, D7);
 
-char unique_id[UNIQUE_ID_SIZE+1] = {0};
+char unique_id[2*UNIQUE_ID_SIZE+1] = {0};
 char pub_subject[SUBJECT_LENGTH] = {0};
 
 NATS nats(&client, "ibts-compute.ecn.purdue.edu", 4223, "diode","9c7TCRO");
@@ -52,9 +52,9 @@ void setup() {
   // Read chip ID (in place of a logical device ID or the TSC ID)
   uint8_t *p = (uint8_t *)UNIQUE_ID_ADDRESS;
   for (int i = 0; i < UNIQUE_ID_SIZE; i++) {
-    sprintf(&unique_id[i*2], "%02X", p[i]);
+    sprintf(&unique_id[i*2], "%02X", p[UNIQUE_ID_SIZE-1-i]);
   }
-
+  unique_id[UNIQUE_ID_SIZE*2] = '\0';
   // Build and store NATS subject for diode data
   snprintf(pub_subject, SUBJECT_LENGTH, "traffic.%s", unique_id);
 

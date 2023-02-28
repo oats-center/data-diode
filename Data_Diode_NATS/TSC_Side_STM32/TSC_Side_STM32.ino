@@ -62,7 +62,8 @@ void loop() {
   // Get next diode frame, if done with last one
   if (curFrame == NULL && !pending.isEmpty()) {
     curFrame = pending.shift();
-    DEBUG_PRINT("Sending rx: %d, dropped:%d: %s\n", rx, dropped, curFrame->data);
+    //DEBUG_PRINT("Sending rx: %d, dropped:%d data=%s\n", rx, dropped, curFrame->data);
+    DEBUG_PRINT("Sending rx: %d, dropped:%d\n", rx, dropped);
   }
   // Tend to diode UART
   if(curFrame != NULL) {
@@ -79,8 +80,9 @@ void loop() {
 void sendDiode(struct Frame *frame) {
   // Check if the Serial TX buffer has space
   uint16_t allowed = Diode.availableForWrite();
-  DEBUG_PRINT("allowed =%d\n",allowed);
+  //DEBUG_PRINT("allowed =%d\n",allowed);
   if (allowed > 0) {
+    DEBUG_PRINT("allowed =%d\n",allowed);
     uint16_t len = frame->length - frame->pos;
     DEBUG_PRINT("point1 len=%d frame->length=%d frame->pos=%d\n",len,frame->length,frame->pos);
     // Send as much as we can, without overflowing the TX buffer
