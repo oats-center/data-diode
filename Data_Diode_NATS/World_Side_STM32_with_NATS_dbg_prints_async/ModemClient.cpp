@@ -146,13 +146,13 @@ void ModemClient::modem_send_at() {
 }
 
 void ModemClient::modem_set_apn() {
-  DEBUG_PRINT("inside modem_set_apn\n");
   membuf_str(&tx, "AT+CGDCONT=1,\"IP\",\"super\"\r\n");
   expected_ok++;
   CHANGE_STATE(M_SET_APN);
 }
 
 void ModemClient::modem_open_network() {
+  DEBUG_PRINT("in modem_open_network\n");
   membuf_str(&tx, "AT+NETOPEN\r\n");
   expected_ok++;
 
@@ -313,7 +313,6 @@ void ModemClient::_processSerial() {
     // Send queued AT command TX
     size_t allowed = modem.availableForWrite();
     size_t size = membuf_size(&tx);
-
     // Not in the middle of a prior command, have room to write, and have something to write
     // TODO: check for == 1 here is weird, but is right. We queue up a command, add 1 to expected_ok, and THEN send. So at this point, expecting 1 ok means nothing is going on and one is ready to go.
     if (expected_ok == 1 && expected_errors == 0 && allowed && size) {
@@ -335,7 +334,6 @@ void ModemClient::_processSerial() {
   // Process complete AT rx lines (but only if we are not rx'ing TCP data)
   char *line;
   while (tcp_bytes_to_recv == 0 && (line = membuf_getline(&rx)) != NULL) {
-
     if (strcmp(line, "") != 0) {
       DEBUG_PRINT("line (ok: %d, err: %d)= %s\n", expected_ok, expected_errors, line);
     }
@@ -350,14 +348,14 @@ void ModemClient::_processSerial() {
 
       expected_ok--;
 
+  	  if (state == M_SET_APN) {
+        modem_open_network();
+      }
+
       if (state == M_POLL) {
         modem_set_apn();
       }
 	  
-	   if (state == M_SET_APN) {
-        modem_open_network();
-      }
-
     } else if (strncmp(line, "+NETOPEN", 8) == 0) {
       int ret;
 
