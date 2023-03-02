@@ -556,7 +556,6 @@ void ModemClient::_processSerial() {
     } 
     else if (state == M_WAITING_TO_SEND && strncmp((const char *)membuf_head(&rx), ">", 1) == 0) {
     // Consume the `>`
-    membuf_first(&rx);
     CHANGE_STATE(M_SENDING);
     }
     else if (strncmp(line, "RECV FROM:", 10) == 0) {
