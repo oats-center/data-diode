@@ -90,12 +90,13 @@ void sendDiode(struct Frame *frame) {
     Diode.write(&frame->data[frame->pos], len);
     
     frame->pos += len;
-    DEBUG_PRINT("point2 len=%d frame->length=%d frame->pos=%d\n",len,frame->length,frame->pos);
+    //DEBUG_PRINT("point2 len=%d frame->length=%d frame->pos=%d\n",len,frame->length,frame->pos);
   }
 }
 
 // This function will be called when new data arrives.
 void handleUDP() {
+  DEBUG_PRINT("===IN handleUDP===\n");
   struct Frame *frame = (struct Frame *)calloc(1, sizeof(struct Frame));
 
   size_t pktLen = tscUDP.parsePacket();
@@ -136,6 +137,8 @@ void handleUDP() {
     DEBUG_PRINT("WARN: Pending buffer FULL. Dropping SPaT frame.\n");
     dropped++;
   }
+
+  DEBUG_PRINT("===OUT handleUDP===\n");
 }
 
 void drop(Frame *frame) {

@@ -266,9 +266,9 @@ void ModemClient::_tick() {
     if (allowed) {
       size_t len = tcp_bytes_to_send > allowed ? allowed : tcp_bytes_to_send;
       modem.write(membuf_head(&tcp_tx), len);
-      DEBUG_PRINT("TCP TX (%d): ", tcp_bytes_to_send);
-      Serial.write(membuf_head(&tcp_tx), len);
-      DEBUG_PRINT("\n");
+      //DEBUG_PRINT("TCP TX (%d): ", tcp_bytes_to_send);
+      //Serial.write(membuf_head(&tcp_tx), len);
+      //DEBUG_PRINT("\n");
 
       // Clean up if done sending
       membuf_shift(&tcp_tx, len);
@@ -356,7 +356,8 @@ void ModemClient::_processSerial() {
         modem_set_apn();
       }
 	  
-    } else if (strncmp(line, "+NETOPEN", 8) == 0) {
+    } 
+  else if (strncmp(line, "+NETOPEN", 8) == 0) {
       int ret;
 
       if (sscanf(line, "+NETOPEN: %d", &ret) != 1) {
@@ -511,7 +512,15 @@ void ModemClient::_processSerial() {
         expected_errors++;
         expected_ok--;
         CHANGE_STATE(M_READY);
-      } else {
+      } 
+      /*
+      else if (ret == 8) {
+        expected_errors++;
+        expected_ok--;
+        //CHANGE_STATE(M_CONNECTED);
+      }
+      */
+      else {
         DEBUG_PRINT("[ERROR] CIPERROR: %s\n", line);
         SET_ERROR(line);
         CHANGE_STATE(M_ERROR);
@@ -544,13 +553,20 @@ void ModemClient::_processSerial() {
       SET_ERROR(line);
       CHANGE_STATE(M_ERROR);
 
-    } else if (strncmp(line, "RECV FROM:", 10) == 0) {
+    } 
+    else if (state == M_WAITING_TO_SEND && strncmp((const char *)membuf_head(&rx), ">", 1) == 0) {
+    // Consume the `>`
+    membuf_first(&rx);
+    CHANGE_STATE(M_SENDING);
+    }
+    else if (strncmp(line, "RECV FROM:", 10) == 0) {
       // Ignore RECV FROM because we only have one tcp_rx buf.
 
     } else if (strcmp(line, "") == 0) {
       // Ignore blank lines
 
-    } else if (
+    } 
+    else if (
       strncmp(line, "RDY", 3) == 0 || strncmp(line, "+CPIN: READY", 12) == 0 || strncmp(line, "SMS DONE", 8) == 0 || strncmp(line, "PB DONE", 7) == 0 || strncmp(line, "ATE0", 4) == 0) {
       // Ignore init messages
 
