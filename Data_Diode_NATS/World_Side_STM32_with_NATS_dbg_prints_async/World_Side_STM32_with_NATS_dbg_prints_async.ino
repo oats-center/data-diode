@@ -19,6 +19,7 @@ ModemClient client(Modem, D7); //Modem serialobject and pwr pin
 
 char unique_id[2*UNIQUE_ID_SIZE+1] = {0};
 char pub_subject[SUBJECT_LENGTH] = {0};
+char pub_subject_err_msg[SUBJECT_LENGTH] = {0};
 bool comm_status = false;
 bool prev_comm_status = false;
 NATS nats(&client, "ibts-compute.ecn.purdue.edu", 4223, "diode","9c7TCRO");
@@ -27,7 +28,7 @@ struct MemBuffer diodeRx;
 CircularBuffer<char *, 20> natsPending;
 
 void nats_on_connect() {
-  nats.publishf("connect", "{\"event\": \"connected\", \"id\": \"%s\", \"lastError\": \"%s\"}", unique_id, client.lastError ? client.lastError : "");
+  nats.publishf(pub_subject_err_msg, "{\"event\": \"connected\", \"id\": \"%s\", \"lastError\": \"%s\"}", unique_id, client.lastError ? client.lastError : "");
 }
 
 void setup() {
@@ -64,6 +65,7 @@ void setup() {
   unique_id[UNIQUE_ID_SIZE*2] = '\0';
   // Build and store NATS subject for diode data
   snprintf(pub_subject, SUBJECT_LENGTH, "traffic.%s", unique_id);
+  snprintf(pub_subject_err_msg, SUBJECT_LENGTH, "connect.%s", unique_id);
 
   Serial.println("===================  WORLD SIDE OF DIODE  ==========================");
   Serial.printf("[INFO] Diode ID: %s\n", unique_id);
