@@ -27,12 +27,12 @@
 }
 
 enum State {
-  M_ERROR,
-  M_POWER_OFF,
   M_RESET,
-  M_POWER_ON,
+  M_ERROR,
+  M_CHECK_AT,
   M_POLL,
   M_SET_APN,
+  M_NET_CLOSE,
   M_NET_OPEN,
   M_READY,
   M_DNS_LOOKUP,
@@ -81,6 +81,9 @@ protected:
   uint32_t timeMark;
   int expected_errors = 0;
   int expected_ok =0;
+  int poll_ok =0;
+  int net_close_ok =0;
+  int cipclose_error = 0;
 
   char ip[16]; // XXX.XXX.XXX.XXX
   uint16_t port;
@@ -95,6 +98,7 @@ protected:
   void modem_send_at();
   void modem_set_apn();
   void modem_open_network();
+  void modem_close_network();
   void modem_connect();
   void modem_send();
   void modem_off();

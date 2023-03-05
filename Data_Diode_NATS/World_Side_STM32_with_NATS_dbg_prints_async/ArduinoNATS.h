@@ -301,6 +301,13 @@ private:
       NATS_CLIENT_VERSION,
       (user == NULL) ? "null" : user,
       (pass == NULL) ? "null" : pass);
+
+    if (!connected) {
+        connected = true;
+        if (on_connect != NULL) {
+          on_connect();
+        }
+      }
   }
 
   void recv() {
@@ -361,12 +368,6 @@ private:
         on_error();
       disconnect();
     } else if (strcmp(argv[0], NATS_CTRL_PING) == 0) {
-      if (!connected) {
-        connected = true;
-        if (on_connect != NULL) {
-          on_connect();
-        }
-      }
       send(NATS_CTRL_PONG "\r\n");
     } else if (strcmp(argv[0], NATS_CTRL_PONG) == 0) {
       outstanding_pings--;
@@ -428,7 +429,8 @@ public:
       return;
     if (!connected)
       return;
-
+    //if(!client->connected())
+    //   return;
     send_fmt("PUB %s %s %lu\r\n",
              subject,
              (replyto == NULL) ? "" : replyto,

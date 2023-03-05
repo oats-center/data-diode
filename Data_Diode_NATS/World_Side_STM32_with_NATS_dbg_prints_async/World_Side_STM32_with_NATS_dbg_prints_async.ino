@@ -6,6 +6,8 @@
 #include <LwIP.h>
 
 #define BAUD_RATE 115200
+#define BLUE_STATUS_LED PB7
+#define RED_STATUS_LED PB14
 
 #define UNIQUE_ID_ADDRESS 0x1FF0F420 // Specific to STM32F7xx series
 #define UNIQUE_ID_SIZE 12
@@ -13,11 +15,12 @@
 
 HardwareSerial Diode(PE7, PE8);  //(Rx, Tx), UART7 below D0 and D1
 HardwareSerial Modem(PG9, PG14);
-ModemClient client(Modem, D7);
+ModemClient client(Modem, D7); //Modem serialobject and pwr pin
 
 char unique_id[2*UNIQUE_ID_SIZE+1] = {0};
 char pub_subject[SUBJECT_LENGTH] = {0};
-
+bool comm_status = false;
+bool prev_comm_status = false;
 NATS nats(&client, "ibts-compute.ecn.purdue.edu", 4223, "diode","9c7TCRO");
 
 struct MemBuffer diodeRx;
@@ -30,6 +33,10 @@ void nats_on_connect() {
 void setup() {
   // Init the diode memory buffer
   Serial.begin(BAUD_RATE);
+  pinMode(BLUE_STATUS_LED, OUTPUT);
+  pinMode(RED_STATUS_LED, OUTPUT);
+  digitalWrite(RED_STATUS_LED, !comm_status);
+  digitalWrite(BLUE_STATUS_LED, comm_status);
   // FIXME: Change back to 115200 
   Diode.begin(38400);
   client.init();
@@ -61,10 +68,12 @@ void setup() {
   Serial.println("===================  WORLD SIDE OF DIODE  ==========================");
   Serial.printf("[INFO] Diode ID: %s\n", unique_id);
   Serial.printf("[INFO] Diode data subject: %s\n", pub_subject);
+  delay(1000);
 }
 
 // the loop function runs over and over again forever
 void loop() {
+  check_led_status();
 
   if(client.isError()) {
     client.reset();
@@ -82,10 +91,21 @@ void loop() {
   while (!natsPending.isEmpty()) {
     char *msg = natsPending.shift();
     //Serial.printf("New message. Length = %d data=%s\n", strlen(msg), msg);
-    Serial.printf("New message. Length = %d\n", strlen(msg), msg);
+    Serial.printf("New message. Length = %d\n", strlen(msg));
     nats.publish(pub_subject, msg);
     free(msg);
   }
+}
+
+void check_led_status()
+{
+  comm_status = client.connected();
+  if(comm_status != prev_comm_status)
+  {
+    digitalWrite(RED_STATUS_LED, !comm_status);
+    digitalWrite(BLUE_STATUS_LED, comm_status);
+  }
+  prev_comm_status = comm_status;
 }
 
 void process_diode() {
