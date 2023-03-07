@@ -70,7 +70,6 @@ void setup() {
   Serial.println("===================  WORLD SIDE OF DIODE  ==========================");
   Serial.printf("[INFO] Diode ID: %s\n", unique_id);
   Serial.printf("[INFO] Diode data subject: %s\n", pub_subject);
-  delay(1000);
 }
 
 // the loop function runs over and over again forever

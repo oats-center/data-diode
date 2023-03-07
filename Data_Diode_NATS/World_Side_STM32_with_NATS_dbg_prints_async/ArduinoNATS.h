@@ -429,8 +429,10 @@ public:
       return;
     if (!connected)
       return;
-    //if(!client->connected())
-    //   return;
+    if (!client->connected()) {
+      connected = false;
+      return;
+    }
     send_fmt("PUB %s %s %lu\r\n",
              subject,
              (replyto == NULL) ? "" : replyto,

@@ -143,31 +143,24 @@ void ModemClient::modem_set_apn() {
   membuf_str(&tx, "AT+CGDCONT=1,\"IP\",\"super\"\r\n");
   expected_ok++;
   poll_ok = 0;
+  poll_count = DEFAULT_POLL_COUNT;
   CHANGE_STATE(M_SET_APN);
 }
 
 void ModemClient::modem_close_network() {
-  DEBUG_PRINT("in modem_close_network\n");
+      DEBUG_PRINT("in modem_close_network\n");
       membuf_str(&tx, "AT+NETCLOSE\r\n");
       expected_ok++;
       net_close_ok++;
+      DEBUG_PRINT("net_close_ok = %d\n",net_close_ok);
       CHANGE_STATE(M_NET_CLOSE);
 }
 
 void ModemClient::modem_open_network() {
   DEBUG_PRINT("in modem_open_network\n");
-  DEBUG_PRINT("cipclose_error=%d\n",cipclose_error);
-  if(cipclose_error == 2)
-  {
-    modem_close_network();
-  } 
-  else
-  {
   membuf_str(&tx, "AT+NETOPEN\r\n");
   expected_ok++;
   CHANGE_STATE(M_NET_OPEN);
-  }
-  cipclose_error = 0;
 }
 
 void ModemClient::modem_connect() {
@@ -186,15 +179,20 @@ void ModemClient::_tick() {
 
   } else if (state == M_RESET) {
     // TODO: How long to keep the modem power signal "low" to cause a physical reset?
-      poll_ok = 0;
-      net_close_ok = 0;
-      modem_off();
-      delay(500);
-      modem_on();
-      delay(15000);
-      CHANGE_STATE(M_ERROR);
+      if(TIME_HAS_BEEN(500))
+      {
+        modem_on();
+        CHANGE_STATE(M_POWER_ON);
+      }
     // Hard power on modem
-  } else if (state == M_CHECK_AT) {
+  } else if (state == M_POWER_ON) {
+    // TODO: How long to keep the modem power signal "low" to cause a physical reset?
+      if(TIME_HAS_BEEN(15000))
+      {
+          CHANGE_STATE(M_ERROR);
+      }
+  }
+    else if (state == M_CHECK_AT) {
       modem_send_at();
     // Waiting for OK response. Hard restart after 5 second
   } else if (state == M_POLL) {
@@ -213,7 +211,7 @@ void ModemClient::_tick() {
     }
   }
   else if (state == M_NET_CLOSE) {
-    if (TIME_HAS_BEEN(5000)) {
+    if (TIME_HAS_BEEN(8000)) {
       SET_ERROR("NET_CLOSE timeout.");
       DEBUG_PRINT("[ERROR] NET_CLOSE timeout.\n");
       CHANGE_STATE(M_ERROR);
@@ -227,7 +225,7 @@ void ModemClient::_tick() {
     }
   } else if (state == M_DNS_LOOKUP) {
 
-    if (TIME_HAS_BEEN(5000)) {
+    if (TIME_HAS_BEEN(8000)) {
       SET_ERROR("DNS LOOKUP timeout");
       DEBUG_PRINT("[ERROR] DNS LOOKUP timeout.\n");
       CHANGE_STATE(M_ERROR);
@@ -305,11 +303,15 @@ void ModemClient::_tick() {
 // Private Methods
 // Note: This function must be non-blocking
 void ModemClient::_processSerial() {
-  if(expected_ok >= 3 || poll_ok > 20 || net_close_ok > 10){
+  if(expected_ok >= 3 || poll_ok > poll_count || net_close_ok > 10){
+    poll_ok = 0;
+    net_close_ok = 0;
+    poll_count += 10;
+    modem_off();
     CHANGE_STATE(M_RESET);
     return;
   }
-  if (state == M_ERROR) {
+  if (state == M_ERROR || state == M_RESET) {
     return;
   }
 
@@ -380,6 +382,13 @@ void ModemClient::_processSerial() {
 	  
     } 
     else if (strncmp(line, "+NETCLOSE", 9) == 0) {
+      if(state != M_NET_CLOSE)
+      {
+        DEBUG_PRINT("[ERROR] NETCLOSE in wrong state: %s\n", line);
+        SET_ERROR(line);
+        break;
+        //not setting to error as this case is expected to first do a CIPCLOSE and then NETCLOSE
+      }
       int ret;
 
       if (sscanf(line, "+NETCLOSE: %d", &ret) != 1) {
@@ -395,8 +404,9 @@ void ModemClient::_processSerial() {
         CHANGE_STATE(M_ERROR);
         break;
       }
-
+      
       modem_open_network();
+ 
     }
   else if (strncmp(line, "+NETOPEN", 8) == 0) {
       int ret;
@@ -499,7 +509,7 @@ void ModemClient::_processSerial() {
       //CHANGE_STATE(M_CONNECTED);   //removing as any delayed response will mess up the stae machine as it would be expecting a ">" in WAITING_TO_SEND state
 
     } else if (strncmp(line, "+CIPCLOSE", 9) == 0) {
-      if(M_NET_CLOSE == state)
+      if(state == M_NET_CLOSE)
       {
         break;
       }
@@ -514,20 +524,16 @@ void ModemClient::_processSerial() {
       }
 
       if (ret != 0) {
-        cipclose_error++;
+        expected_errors++;
+        expected_ok--;
         DEBUG_PRINT("[ERROR] Connection close error: %s\n", line);
         SET_ERROR(line);
-        CHANGE_STATE(M_ERROR);
+        modem_close_network();
         break;
       }
       CHANGE_STATE(M_READY);
 
-    } else if (cipclose_error==1 && strncmp(line, "ERROR", 5) == 0) {
-        cipclose_error++;
-        DEBUG_PRINT("[ERROR] Connection close error abnormal: %s\n", line);
-        SET_ERROR(line);
-
-    }  else if (strncmp(line, "+IPD", 4) == 0) {
+    } else if (strncmp(line, "+IPD", 4) == 0) {
       size_t length;
       if (sscanf(line, "+IPD%zd", &length) != 1) {
         DEBUG_PRINT("[ERROR] Invalid CDNSGIP response: %s\n", line);
@@ -560,10 +566,17 @@ void ModemClient::_processSerial() {
         break;
       }
 
-      if ((ret == 4) || (ret == 8)) {
+      if (ret == 4) {
         expected_errors++;
         expected_ok--;
+        SET_ERROR(line);
         CHANGE_STATE(M_READY);
+      } 
+      else if (ret == 8) {
+        expected_errors++;
+        expected_ok--;
+        SET_ERROR(line);
+        CHANGE_STATE(M_ERROR);
       } 
       /*
       else if (ret == 8) {

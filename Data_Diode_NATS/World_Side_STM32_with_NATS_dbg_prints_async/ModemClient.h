@@ -9,7 +9,7 @@
 
 #define MODEM_BAUD_RATE 115200
 #define MODEM_MTU 1500
-
+#define DEFAULT_POLL_COUNT 20  //set default reset time to 20 sec
 // Note: Measuring time is hard when the clock can overflow. Instead, compute
 // and compare durations
 // Checks if it has been at least x milliseconds since the last TIME_MARK()
@@ -28,6 +28,7 @@
 
 enum State {
   M_RESET,
+  M_POWER_ON,
   M_ERROR,
   M_CHECK_AT,
   M_POLL,
@@ -79,11 +80,11 @@ protected:
   uint8_t pwr;
   enum State state = M_ERROR;
   uint32_t timeMark;
+  uint32_t poll_count = DEFAULT_POLL_COUNT;
   int expected_errors = 0;
   int expected_ok =0;
   int poll_ok =0;
-  int net_close_ok =0;
-  int cipclose_error = 0;
+  int net_close_ok =0;  
 
   char ip[16]; // XXX.XXX.XXX.XXX
   uint16_t port;
