@@ -1,4 +1,4 @@
-21471683838798320
+21473363087925056
 Audio_Module
 Reverb_BTDR-1H
 Digital Reverberation Unit, http://www.belton.co.kr/inc/downfile.php?seq=17&file=pdf (footprint from http://www.uk-electronic.de/PDF/BTDR-1.pdf)
@@ -60386,8 +60386,8 @@ MODULE_NUCLEO-F429ZI
 
 
 0
-100
-100
+101
+101
 Local footprints
 oats_logo
 
@@ -89592,3 +89592,10 @@ varistor
 0
 2
 2
+components-orig
+MODULE_NUCLEO-F429ZI
+
+
+0
+244
+244
