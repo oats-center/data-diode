@@ -1,0 +1,35 @@
+{
+	"name": "mobile",
+	"version": "0.0.1",
+	"private": true,
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"preview": "vite preview",
+		"lint": "prettier --plugin-search-dir . --check . && eslint .",
+		"format": "prettier --plugin-search-dir . --write ."
+	},
+	"devDependencies": {
+		"@esbuild-plugins/node-globals-polyfill": "^0.2.3",
+		"@sveltejs/adapter-static": "^2.0.0",
+		"@sveltejs/kit": "^1.0.0",
+		"autoprefixer": "^10.4.13",
+		"daisyui": "^2.50.0",
+		"eslint": "^8.28.0",
+		"eslint-config-prettier": "^8.5.0",
+		"eslint-plugin-svelte3": "^4.0.0",
+		"postcss": "^8.4.21",
+		"prettier": "^2.8.0",
+		"prettier-plugin-svelte": "^2.8.1",
+		"rollup-plugin-polyfill-node": "^0.12.0",
+		"svelte": "^3.54.0",
+		"tailwindcss": "^3.2.6",
+		"vite": "^4.0.0"
+	},
+	"type": "module",
+	"dependencies": {
+		"leaflet": "^1.9.3",
+		"nats.ws": "^1.12.0",
+		"svelte-json-tree": "^1.0.0"
+	}
+}

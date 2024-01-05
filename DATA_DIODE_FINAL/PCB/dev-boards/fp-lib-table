@@ -1,0 +1,5 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "Local footprints")(type "KiCad")(uri "${KIPRJMOD}/components")(options "")(descr ""))
+  (lib (name "components-orig")(type "KiCad")(uri "${KIPRJMOD}/components-orig")(options "")(descr ""))
+)

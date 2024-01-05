@@ -1,0 +1,6 @@
+{
+  "cpu": {
+    "fqbn": "STMicroelectronics:stm32:Nucleo_144",
+    "name": "Nucleo F767ZI"
+  }
+}

@@ -1,0 +1,4 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "NUCLEO-F767ZI")(type "KiCad")(uri "${KIPRJMOD}/NUCLEO-F767ZI")(options "")(descr ""))
+)

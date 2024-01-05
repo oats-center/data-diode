@@ -1,0 +1,109 @@
+#include "MemoryBuffer.h"
+#include <stdio.h>
+
+struct MemBuffer b;
+
+int main() {
+  membuf_init(&b);
+
+  uint8_t *p = membuf_add(&b, 20);
+
+  memcpy(p, "Test 1\nTest 2\nTest 3", 20);
+
+  printf("Starting b (%zu of %zu):\n%s\n----\n", b.pos, b.length, b.data);
+
+  // Test 1: get line
+  char *line = membuf_getline(&b);
+  if (strcmp(line, "Test 1") == 0) {
+    printf("[Ok]: Line is correct\n");
+  } else {
+    printf("[Err]: '%s == Test 1'?\n", line);
+  }
+  free(line);
+
+  // Test 2: get line
+  line = membuf_getline(&b);
+  if (strcmp(line, "Test 2") == 0) {
+    printf("[Ok]: Line is correct\n");
+  } else {
+    printf("[Err]: '%s == Test 2'?\n", line);
+  }
+  free(line);
+
+  // Test 3: no lone to get
+  line = membuf_getline(&b);
+
+  if (line == NULL && strcmp((char *)b.data, "Test 3") == 0) {
+    printf("[OK]: No new line. Left over correct.\n");
+  } else {
+    printf("[Err]: New line or wrong left over? '%s == Test 3'?\n", b.data);
+  }
+  free(line);
+
+  // Test 4: Add str
+  membuf_str(&b, "\nTest 4\nabc");
+
+  if (b.length == 50) {
+    printf("[OK]: Capacity did not change.\n");
+  } else {
+    printf("[Err]: Capacity %zu == 50 ?", b.length);
+  }
+
+  if (strcmp((char *)b.data, "Test 3\nTest 4\nabc") == 0) {
+    printf("[OK]: New data added.\n");
+  } else {
+    printf("[Err]: New data added wrong? '%s == Test 3\r\nTest4\r\nabc'?\n",
+           b.data);
+  }
+
+  // Test 5: get line
+  line = membuf_getline(&b);
+  if (strcmp(line, "Test 3") == 0) {
+    printf("[Ok]: Line is correct\n");
+  } else {
+    printf("[Err]: '%s == Test 3'?\n", line);
+  }
+  free(line);
+
+  // Test 6: get line
+  line = membuf_getline(&b);
+  if (strcmp(line, "Test 4") == 0) {
+    printf("[Ok]: Line is correct\n");
+  } else {
+    printf("[Err]: '%s == Test 4'?\n", line);
+  }
+  free(line);
+
+  // Test 7: no line to get
+  line = membuf_getline(&b);
+
+  if (line == NULL && strcmp((char *)b.data, "abc") == 0) {
+    printf("[OK]: No new line. Left over correct.\n");
+  } else {
+    printf("[Err]: New line or wrong left over? '%s == abc'?\n", b.data);
+  }
+  free(line);
+
+  // Test 8: get head
+  char c = (char)membuf_first(&b);
+
+  if (c != 'a') {
+    printf("[Err]: Head not as expected: %c == a ?", c);
+  } else if (strcmp((char *)b.data, "bc") != 0) {
+    printf("[Err]: Leftover not as expected: %s == bc ?", b.data);
+  } else {
+    printf("[OK]: Head correct. Left over correct.\n");
+  }
+
+  membuf_str(
+      &b,
+      "This is a long string that will make it realloc the internal buffer");
+
+  if (b.length == 100) {
+    printf("[OK]: Capacity grew.\n");
+  } else {
+    printf("[Err]: Capacity %zu == 100 ?", b.length);
+  }
+
+  return 0;
+}

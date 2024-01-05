@@ -1,0 +1,37 @@
+TRY1 :
+Average End-to-End Latency(ms)190.4654594232059
+Average Uplink Latency(ms):179.36016096579476
+MAX End-to-End Latency(ms):419
+MIN End-to-End Latency(ms):161
+MAX Uplink Latency(ms):388
+MIN Uplink Latency(ms):157
+Number of packets : 1491
+
+
+TRY2 :
+Average End-to-End Latency(ms) : 188.06161616161617
+Average Uplink Latency(ms): 177.6020202020202
+MAX End-to-End Latency(ms): 668
+MIN End-to-End Latency(ms): 162
+MAX Uplink Latency(ms): 380
+MIN Uplink Latency(ms): 158
+Number of packets : 990
+
+****************************************************************************************************************************************************************
+Latency at Lansing SIgnal Shop Michigan:
+Average End-to-End Latency(ms) : 309.8716075156576
+Average Uplink Latency(ms): 218.58977035490605
+MAX End-to-End Latency(ms): 733
+MIN End-to-End Latency(ms): 258
+MAX Uplink Latency(ms): 554
+MIN Uplink Latency(ms): 190
+Number of packets : 958
+****************************************************************************************************************************************************************
+Latency at (M52 x King St.) i.e. Roughly: 43°00'17.8"N 84°10'36.6"W
+Average End-to-End Latency(ms) : 470.2997987927565
+Average Uplink Latency(ms): 344.66901408450707
+MAX End-to-End Latency(ms): 948
+MIN End-to-End Latency(ms): 13
+MAX Uplink Latency(ms): 833
+MIN Uplink Latency(ms): 237
+Number of packets : 994
